@@ -1,0 +1,39 @@
+name: Chorus tests
+
+on:
+  push:
+    branches: ["main", "chorus/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detection:
+    name: Detection accuracy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            src-tauri/crates/chorus-refparse
+
+      - name: Chorus reference engine tests
+        working-directory: src-tauri/crates/chorus-refparse
+        run: cargo test -- --nocapture
+
+      - name: Accuracy benchmark (211 sermon phrases)
+        working-directory: src-tauri
+        run: cargo test -p rhema-detection --test chorus_benchmark -- --nocapture
+
+      - name: Existing detection unit tests
+        working-directory: src-tauri
+        run: cargo test -p rhema-detection --lib
