@@ -14,9 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - name: Fetch crates
+      - name: Fetch crates and show any lock file change Cargo wants
         working-directory: src-tauri
-        run: cargo fetch --locked
+        run: |
+          cargo fetch
+          echo "==== LOCKDIFF START"
+          git diff --no-color Cargo.lock
+          echo "==== LOCKDIFF END"
       - name: whisper-rs VAD API
         run: |
           d=$(ls -d ~/.cargo/registry/src/*/whisper-rs-0.16* | head -1)
