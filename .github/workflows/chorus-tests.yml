@@ -11,6 +11,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lockfile:
+    name: Lock file is up to date
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # If this fails, Cargo would rewrite Cargo.lock on every PC that
+      # builds Chorus, and git pull would then refuse to update.
+      - name: Check Cargo.lock
+        working-directory: src-tauri
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
   detection:
     name: Detection accuracy
     runs-on: ubuntu-24.04
