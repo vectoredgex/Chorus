@@ -21,23 +21,19 @@ jobs:
     name: NVIDIA (CUDA) build
     runs-on: ubuntu-24.04
     timeout-minutes: 75
+    # NVIDIA's official image already contains the full CUDA Toolkit.
+    container: nvidia/cuda:12.8.0-devel-ubuntu24.04
     steps:
+      - name: Install build tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update -o Acquire::Retries=3
+          apt-get install -y -o Acquire::Retries=3 git curl build-essential cmake clang libclang-dev pkg-config libasound2-dev
+
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.24
-        with:
-          cuda: "12.8.0"
-          method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "nvrtc_dev", "thrust"]'
-          non-cuda-sub-packages: '["libcublas", "libcublas-dev"]'
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y -o Acquire::Retries=3 libasound2-dev
 
       - uses: Swatinem/rust-cache@v2
         with:
