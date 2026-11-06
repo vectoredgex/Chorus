@@ -147,6 +147,30 @@ enum Job {
     Final(Vec<i16>),
 }
 
+/// Even out the volume of a phrase before Whisper hears it: a quiet voice
+/// (pastor turned away, laptop mic across the room) is raised so its loud
+/// parts reach about half of full scale. Gain is capped at 8x so silence and
+/// hiss are not blown up, and loud audio is never turned down.
+fn level_volume(samples: &mut [f32]) {
+    const TARGET_PEAK: f32 = 0.5;
+    const MAX_GAIN: f32 = 8.0;
+    if samples.is_empty() {
+        return;
+    }
+    // 99.5th-percentile level, so a single click doesn't decide the gain.
+    let mut mags: Vec<f32> = samples.iter().map(|s| s.abs()).collect();
+    let idx = (mags.len() - 1) * 995 / 1000;
+    let (_, peak, _) = mags.select_nth_unstable_by(idx, f32::total_cmp);
+    let peak = *peak;
+    if peak <= 1e-4 || peak >= TARGET_PEAK {
+        return;
+    }
+    let gain = (TARGET_PEAK / peak).min(MAX_GAIN);
+    for s in samples.iter_mut() {
+        *s = (*s * gain).clamp(-1.0, 1.0);
+    }
+}
+
 /// Convert i16 PCM samples to f32 in [-1.0, 1.0] range.
 fn i16_to_f32(samples: &[i16]) -> Vec<f32> {
     samples.iter().map(|&s| f32::from(s) / 32768.0).collect()
@@ -435,7 +459,8 @@ impl SttProvider for WhisperProvider {
                     Job::Final(a) => (a, false),
                 };
 
-                let audio_f32 = i16_to_f32(&audio_i16);
+                let mut audio_f32 = i16_to_f32(&audio_i16);
+                level_volume(&mut audio_f32);
 
                 let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
                 params.set_language(Some(
@@ -520,6 +545,19 @@ impl SttProvider for WhisperProvider {
 #[cfg(test)]
 mod chorus_tests {
     use super::{audio_ctx_for, current_prompt, set_context_hint, BIBLE_PROMPT};
+
+    #[test]
+    fn quiet_audio_is_raised_loud_audio_untouched() {
+        let mut quiet: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.05 } else { -0.05 }).collect();
+        super::level_volume(&mut quiet);
+        assert!((quiet[0] - 0.4).abs() < 1e-6, "capped at 8x: {}", quiet[0]);
+        let mut loud: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.7 } else { -0.7 }).collect();
+        super::level_volume(&mut loud);
+        assert!((loud[0] - 0.7).abs() < 1e-6);
+        let mut medium: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.25 } else { -0.25 }).collect();
+        super::level_volume(&mut medium);
+        assert!((medium[0] - 0.5).abs() < 1e-6);
+    }
 
     #[test]
     fn prompt_includes_current_passage() {
