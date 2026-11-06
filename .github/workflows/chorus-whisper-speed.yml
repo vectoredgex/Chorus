@@ -28,9 +28,14 @@ jobs:
           sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg libasound2-dev
 
+      - name: Identify CPU (whisper.cpp is built for the exact CPU)
+        id: cpu
+        run: echo "id=$(grep -m1 'model name' /proc/cpuinfo | md5sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: speed-${{ steps.cpu.outputs.id }}
 
       - name: Cache Whisper model
         uses: actions/cache@v4
