@@ -1,11 +1,8 @@
 [package]
 name = "chorus-refparse"
 version = "0.1.0"
-edition = "2024"
-description = "Chorus Bible reference engine (standalone, no dependencies)"
+edition = "2021"
+description = "Chorus Bible reference engine (no dependencies)"
 license = "MIT"
 
 [dependencies]
-
-# Standalone for now; joins the main workspace when it is wired into the app.
-[workspace]

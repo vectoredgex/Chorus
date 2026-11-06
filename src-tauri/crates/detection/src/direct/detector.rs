@@ -479,6 +479,13 @@ pub struct DirectDetector {
     incomplete: Option<IncompleteRef>,
     /// Recently detected verses for "previous verse" navigation (most recent first).
     recent_detections: VecDeque<VerseRef>,
+    /// Chorus reference engine: decides complete references it is sure of.
+    chorus: chorus_refparse::Detector,
+    /// Text of the previous call, to recognise partials of the same utterance.
+    chorus_prev_text: String,
+    /// Context as it stood before the current utterance started, so relative
+    /// follow-ups ("the next verse") don't advance again on every partial.
+    chorus_snapshot: Option<chorus_refparse::Reference>,
 }
 
 impl DirectDetector {
@@ -488,6 +495,9 @@ impl DirectDetector {
             context: ReferenceContext::new(),
             incomplete: None,
             recent_detections: VecDeque::with_capacity(5),
+            chorus: chorus_refparse::Detector::new(),
+            chorus_prev_text: String::new(),
+            chorus_snapshot: None,
         }
     }
 
@@ -575,7 +585,77 @@ impl DirectDetector {
         })
     }
 
+    /// Detect Bible references in a transcript (partial or final).
+    ///
+    /// The Chorus engine runs first. When it finds complete references
+    /// (book, chapter and verse) that exist in the Bible, those win. Otherwise
+    /// the original detector handles the text: held chapter-only references,
+    /// streaming completions, corrections and "previous verse" commands.
     pub fn detect(&mut self, text: &str) -> Vec<Detection> {
+        let same_utterance = is_same_utterance(&self.chorus_prev_text, text);
+        if same_utterance {
+            self.chorus.set_last(self.chorus_snapshot);
+        } else {
+            self.chorus_snapshot = self.chorus.last();
+        }
+        self.chorus_prev_text = text.to_string();
+
+        let chorus_hits = self.chorus_hits(text);
+        let out = if chorus_hits.is_empty() {
+            self.detect_base(text)
+        } else {
+            self.incomplete = None;
+            let mut out = Vec::with_capacity(chorus_hits.len());
+            for (vr, confidence) in chorus_hits {
+                out.push(self.make_direct_detection(&vr, confidence, text, 0, text.len()));
+                self.push_recent(&vr);
+                self.context.update(&vr);
+            }
+            out
+        };
+        if let Some(d) = out.last() {
+            self.chorus.set_last(Some(to_chorus_ref(&d.verse_ref)));
+        }
+        out
+    }
+
+    /// Verse-level references from the Chorus engine that really exist.
+    fn chorus_hits(&mut self, text: &str) -> Vec<(VerseRef, f64)> {
+        use chorus_refparse::Confidence;
+        self.chorus
+            .detect(text)
+            .into_iter()
+            .filter(|d| d.confidence >= Confidence::Medium)
+            .filter_map(|d| {
+                let r = d.reference;
+                let verse = i32::from(r.verse_start?);
+                let book_number = i32::from(r.book);
+                let chapter = i32::from(r.chapter);
+                if !is_valid_reference(book_number, chapter)
+                    || !versification::is_valid_verse(book_number, chapter, verse)
+                {
+                    return None;
+                }
+                let book_name = super::books::BOOKS
+                    .iter()
+                    .find(|b| b.number == book_number)
+                    .map_or_else(|| r.book().name.to_string(), |b| b.name.to_string());
+                let mut vr = VerseRef {
+                    book_number,
+                    book_name,
+                    chapter,
+                    verse_start: verse,
+                    verse_end: r.verse_end.map(i32::from),
+                };
+                clamp_verse_end(&mut vr);
+                let confidence = if d.confidence == Confidence::High { 1.0 } else { 0.85 };
+                Some((vr, confidence))
+            })
+            .collect()
+    }
+
+    /// The original Rhema direct detector.
+    fn detect_base(&mut self, text: &str) -> Vec<Detection> {
         // Step 0: Clean filler phrases from the transcript
         let cleaned = clean_transcript(text);
         let text = &cleaned;
@@ -1041,6 +1121,29 @@ impl DirectDetector {
                 inc.timestamp = ts;
             }
         }
+    }
+}
+
+/// Partials of one utterance share most of their opening text.
+fn is_same_utterance(prev: &str, text: &str) -> bool {
+    let shorter = prev.len().min(text.len());
+    if shorter < 4 {
+        return false;
+    }
+    let common = prev
+        .chars()
+        .zip(text.chars())
+        .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+        .count();
+    common * 10 >= shorter * 6
+}
+
+fn to_chorus_ref(v: &VerseRef) -> chorus_refparse::Reference {
+    chorus_refparse::Reference {
+        book: u8::try_from(v.book_number).unwrap_or(1).clamp(1, 66),
+        chapter: u16::try_from(v.chapter).unwrap_or(1).max(1),
+        verse_start: u16::try_from(v.verse_start).ok().filter(|v| *v > 0),
+        verse_end: v.verse_end.and_then(|e| u16::try_from(e).ok()),
     }
 }
 

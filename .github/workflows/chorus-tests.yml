@@ -22,13 +22,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            src-tauri
-            src-tauri/crates/chorus-refparse
+          workspaces: src-tauri
 
       - name: Chorus reference engine tests
-        working-directory: src-tauri/crates/chorus-refparse
-        run: cargo test -- --nocapture
+        working-directory: src-tauri
+        run: cargo test -p chorus-refparse -- --nocapture
 
       - name: Accuracy benchmark (211 sermon phrases)
         working-directory: src-tauri
