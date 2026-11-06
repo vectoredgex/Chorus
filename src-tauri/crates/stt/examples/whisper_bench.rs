@@ -75,23 +75,30 @@ fn main() {
     let _ = transcribe(&mut state, &warm, threads, 256);
 
     println!("\n==== WHISPER SPEED (threads={threads}) ====");
-    let (mut old_total, mut new_total, mut audio_total) = (0.0, 0.0, 0.0);
+    let (mut old_total, mut new_total, mut alt_total, mut audio_total) = (0.0, 0.0, 0.0, 0.0);
     for path in &args[3..] {
         let audio = read_wav(path);
         #[expect(clippy::cast_precision_loss, reason = "clip lengths are small")]
         let dur = audio.len() as f64 / 16_000.0;
         let ctx_new = audio_ctx_for(audio.len());
+        // A roomier alternative: twice the margin, at least ~10 s of window.
+        #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap, reason = "<= 1500")]
+        let ctx_alt = (audio.len() * 50 / 16_000 + 256).clamp(512, 1500) as i32;
         let (old_text, old_s) = transcribe(&mut state, &audio, threads, 1500);
         let (new_text, new_s) = transcribe(&mut state, &audio, threads, ctx_new);
+        let (alt_text, alt_s) = transcribe(&mut state, &audio, threads, ctx_alt);
         old_total += old_s;
         new_total += new_s;
+        alt_total += alt_s;
         audio_total += dur;
         println!("\nclip {path} ({dur:.1}s audio)");
         println!("  old (window 1500): {old_s:6.2}s  {old_text:?}");
         println!("  new (window {ctx_new:4}): {new_s:6.2}s  {new_text:?}");
+        println!("  alt (window {ctx_alt:4}): {alt_s:6.2}s  {alt_text:?}");
     }
     println!(
-        "\nTOTAL for {audio_total:.1}s of audio: old {old_total:.2}s, new {new_total:.2}s ({:.1}x faster)",
-        old_total / new_total.max(1e-9)
+        "\nTOTAL for {audio_total:.1}s of audio: old {old_total:.2}s, new {new_total:.2}s ({:.1}x faster), alt {alt_total:.2}s ({:.1}x faster)",
+        old_total / new_total.max(1e-9),
+        old_total / alt_total.max(1e-9)
     );
 }

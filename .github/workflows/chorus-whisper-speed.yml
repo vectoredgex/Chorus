@@ -53,7 +53,7 @@ jobs:
           while IFS= read -r line; do
             i=$((i+1))
             espeak-ng -s 150 -w clips/raw$i.wav "$line"
-            ffmpeg -loglevel error -y -i clips/raw$i.wav -ar 16000 -ac 1 -sample_fmt s16 clips/clip$i.wav
+            ffmpeg -nostdin -loglevel error -y -i clips/raw$i.wav -ar 16000 -ac 1 -sample_fmt s16 clips/clip$i.wav
             echo "clip$i: $line"
           done <<'EOF'
           John three sixteen
