@@ -1,0 +1,4 @@
+# Build tools rewrite these with LF line endings; keep them LF everywhere
+# so Windows checkouts do not show them as modified.
+*.toml text eol=lf
+*.lock text eol=lf
