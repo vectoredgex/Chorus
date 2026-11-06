@@ -175,6 +175,7 @@ pub const ALIASES: &[(&str, Target)] = &[
     ("cor", Target::Family { ids: [46, 47, 0], default_id: None }),
     ("galatians", Target::One(48)), ("gal", Target::One(48)), ("galatian", Target::One(48)),
     ("ephesians", Target::One(49)), ("eph", Target::One(49)), ("ephesian", Target::One(49)),
+    ("ephemians", Target::One(49)), ("efesians", Target::One(49)),
     ("philippians", Target::One(50)), ("phil", Target::One(50)), ("phillipians", Target::One(50)),
     ("philipians", Target::One(50)), ("philippines", Target::One(50)),
     ("colossians", Target::One(51)), ("col", Target::One(51)), ("colosians", Target::One(51)),

@@ -258,3 +258,9 @@ Psalm 2 3 verse 4 => Psalms 23:4 [H]
 David in Psalm 1 1 2 verse one now says => Psalms 112:1 [H]
 Psalm 1 19 verse 105 => Psalms 119:105 [H]
 John 3 16 => John 3:16 [H]
+
+# --- Whisper transcription slips (measured with a sized encoder window) ---
+Philippians for 13. => Philippians 4:13 [H]
+So this morning we are going to look at Ephemians chapter 2 verses 8 and 9, for by grace you have been saved through faith. => Ephesians 2:8-9 [H]
+For God so loved the world => NONE
+John 3 for God so loved the world => John 3 [L]

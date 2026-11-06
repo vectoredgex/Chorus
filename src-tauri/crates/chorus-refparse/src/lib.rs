@@ -307,7 +307,14 @@ fn parse_tail(t: &[String], start: usize, book: &Book) -> Option<Tail> {
             }
         }
     }
-    let c = num(t, k)?;
+    // Speech engines write a spoken "four" as "for" right after a book
+    // name: "Philippians for 13" is Philippians 4:13. Only when a number
+    // follows, so "John 3 for God so loved" is unaffected.
+    let c = if tok(t, k) == "for" && num(t, k + 1).is_some() && book.chapters >= 4 {
+        numbers::Num { value: 4, len: 1, ordinal: false }
+    } else {
+        num(t, k)?
+    };
     if book.chapters == 1 && !chapter_word && c.value > 1 {
         // "Jude 24" means verse 24; "Jude 2:1" is not a real reference.
         if tok(t, k + c.len) == ":" || c.value > MAX_VERSE as u32 {
