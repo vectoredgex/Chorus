@@ -17,6 +17,7 @@
 //! - `rest-fallback` — enables REST API fallback client
 //! - `whisper` — enables local Whisper STT provider
 
+pub mod cleanup;
 pub mod deepgram;
 pub mod error;
 pub mod keyterms;

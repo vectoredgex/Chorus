@@ -416,6 +416,8 @@ impl SttProvider for WhisperProvider {
                 let elapsed = start.elapsed();
 
                 let (text, words, confidence) = extract_segments(&state);
+                // Whisper sometimes loops ("Romans 8:28, Romans 8:28, ...").
+                let text = crate::cleanup::remove_repeats(&text);
 
                 #[expect(clippy::cast_precision_loss, reason = "audio sample count fits in f64")]
                 let audio_duration_s = audio_i16.len() as f64 / 16_000.0;

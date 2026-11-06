@@ -11,6 +11,7 @@
 
 use std::time::Instant;
 
+use rhema_stt::cleanup::remove_repeats;
 use rhema_stt::whisper::{audio_ctx_for, BIBLE_PROMPT};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -60,7 +61,7 @@ fn transcribe(state: &mut whisper_rs::WhisperState, audio: &[f32], threads: i32,
             text.push_str(&seg.to_str_lossy().unwrap_or_default());
         }
     }
-    (text.trim().to_string(), secs)
+    (remove_repeats(text.trim()), secs)
 }
 
 fn main() {
@@ -85,7 +86,7 @@ fn main() {
         let dur = audio.len() as f64 / 16_000.0;
         let ctx_new = audio_ctx_for(audio.len());
         let (old_text, old_s) = transcribe(&mut state, &audio, threads, 1500, false);
-        let (alt_text, alt_s) = transcribe(&mut state, &audio, threads, ctx_new, false);
+        let (alt_text, alt_s) = transcribe(&mut state, &audio, threads, 1500, true);
         let (new_text, new_s) = transcribe(&mut state, &audio, threads, ctx_new, true);
         old_total += old_s;
         new_total += new_s;
@@ -93,11 +94,11 @@ fn main() {
         audio_total += dur;
         println!("\nclip {path} ({dur:.1}s audio)");
         println!("  old  (window 1500):          {old_s:6.2}s  {old_text:?}");
-        println!("  win  (window {ctx_new:4}):          {alt_s:6.2}s  {alt_text:?}");
+        println!("  gpu  (window 1500 + prompt):   {alt_s:6.2}s  {alt_text:?}");
         println!("  new  (window {ctx_new:4} + prompt): {new_s:6.2}s  {new_text:?}");
     }
     println!(
-        "\nTOTAL for {audio_total:.1}s of audio: old {old_total:.2}s, window only {alt_total:.2}s ({:.1}x faster), window + prompt {new_total:.2}s ({:.1}x faster)",
+        "\nTOTAL for {audio_total:.1}s of audio: old {old_total:.2}s, full window + prompt {alt_total:.2}s ({:.1}x faster), window + prompt {new_total:.2}s ({:.1}x faster)",
         old_total / alt_total.max(1e-9),
         old_total / new_total.max(1e-9)
     );
