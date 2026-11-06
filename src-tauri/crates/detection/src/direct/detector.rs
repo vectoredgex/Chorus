@@ -600,6 +600,11 @@ impl DirectDetector {
         }
         self.chorus_prev_text = text.to_string();
 
+        // "we sang verse two of the hymn" is about a song, not Scripture.
+        if chorus_refparse::is_song_verse(text) {
+            return Vec::new();
+        }
+
         let chorus_hits = self.chorus_hits(text);
         let out = if chorus_hits.is_empty() {
             self.detect_base(text)

@@ -287,6 +287,26 @@ fn parse_tail(t: &[String], start: usize, book: &Book) -> Option<Tail> {
             return Some(Tail { chapter: 1, verse: Some(v), chapter_word, next });
         }
     }
+    // Speech engines sometimes split one spoken chapter into digit groups:
+    // "Psalm one thirty-six verse 1" arrives as "Psalm 1 36 verse 1". When a
+    // run of digit tokens is followed by an explicit verse marker, the run is
+    // one chapter number.
+    let run = t[k.min(t.len())..]
+        .iter()
+        .take_while(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+        .count();
+    let marker = tok(t, k + run);
+    if run >= 2 && (marker == ":" || VERSE_WORDS.contains(&marker)) {
+        let joined: String = t[k..k + run].concat();
+        if let Ok(ch) = joined.parse::<u16>() {
+            if ch >= 1 && ch <= book.chapters {
+                if let Some(v) = parse_verse(t, k + run, false) {
+                    let next = v.next;
+                    return Some(Tail { chapter: ch, verse: Some(v), chapter_word, next });
+                }
+            }
+        }
+    }
     let c = num(t, k)?;
     if book.chapters == 1 && !chapter_word && c.value > 1 {
         // "Jude 24" means verse 24; "Jude 2:1" is not a real reference.
@@ -533,7 +553,38 @@ impl Detector {
     }
 }
 
+/// True when the text talks about a verse of a song, not of Scripture:
+/// "we sang verse two of the hymn", "the second verse of this song".
+/// Callers should not resolve any reference from such text.
+pub fn is_song_verse(text: &str) -> bool {
+    const MUSIC: &[&str] = &["hymn", "hymns", "song", "songs", "chorus", "carol", "anthem", "poem", "hymnal"];
+    let t = normalize(text);
+    (0..t.len()).any(|i| {
+        if !VERSE_WORDS.contains(&t[i].as_str()) {
+            return false;
+        }
+        let window = (i + 1)..(i + 7).min(t.len());
+        let has_music = window.clone().any(|j| MUSIC.contains(&t[j].as_str()));
+        let has_book = window.into_iter().any(|j| match_book(&t, j).is_some());
+        has_music && !has_book
+    })
+}
+
 /// One-shot helper for a single phrase with no earlier context.
 pub fn detect(text: &str) -> Vec<Detection> {
     Detector::new().detect(text)
+}
+
+#[cfg(test)]
+mod song_tests {
+    use super::is_song_verse;
+    #[test]
+    fn song_verses() {
+        assert!(is_song_verse("we sang verse two of the hymn"));
+        assert!(is_song_verse("let's sing the second verse of this song"));
+        assert!(is_song_verse("verse 3 of the chorus again"));
+        assert!(!is_song_verse("John 3 verse 16"));
+        assert!(!is_song_verse("verse 16 of John 3 is like a song"));
+        assert!(!is_song_verse("the song of Moses in Exodus 15"));
+    }
 }

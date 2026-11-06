@@ -28,7 +28,7 @@ jobs:
         working-directory: src-tauri
         run: cargo test -p chorus-refparse -- --nocapture
 
-      - name: Accuracy benchmark (211 sermon phrases)
+      - name: Accuracy benchmark (sermon phrase set)
         working-directory: src-tauri
         run: cargo test -p rhema-detection --test chorus_benchmark -- --nocapture
 

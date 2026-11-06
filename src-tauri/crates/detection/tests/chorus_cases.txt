@@ -251,3 +251,10 @@ he read from Isaiah the scroll => NONE
 John the Baptist preached repentance => NONE
 first John four nineteen we love because he first loved us => 1 John 4:19 [H]
 Ephesians 6 verses 10 to 18 the armor of God => Ephesians 6:10-18 [H]
+
+# --- Speech engine splits one chapter into digit groups (seen live) --------
+Psalm 1 36 verse 1. => Psalms 136:1 [H]
+Psalm 2 3 verse 4 => Psalms 23:4 [H]
+David in Psalm 1 1 2 verse one now says => Psalms 112:1 [H]
+Psalm 1 19 verse 105 => Psalms 119:105 [H]
+John 3 16 => John 3:16 [H]
