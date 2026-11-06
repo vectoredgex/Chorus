@@ -42,7 +42,7 @@ const MIN_WORD_SAMPLES: usize = 16_000 / 2;
 /// Whisper normally encodes a fixed 30 s window (1500 frames of 20 ms) no
 /// matter how short the clip is. Encoding only as many frames as the clip
 /// needs, plus a margin, cuts the work for a 2 s phrase several times over.
-fn audio_ctx_for(samples: usize) -> i32 {
+pub fn audio_ctx_for(samples: usize) -> i32 {
     const FRAMES_PER_SECOND: usize = 50;
     const MARGIN_FRAMES: usize = 128;
     const MIN_FRAMES: usize = 256;

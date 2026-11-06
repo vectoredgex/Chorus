@@ -1,0 +1,76 @@
+name: Chorus Whisper speed
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "src-tauri/crates/stt/**"
+      - ".github/workflows/chorus-whisper-speed.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-whisper-speed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  speed:
+    name: Whisper speed (large-v3-turbo, same as the app)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install speech synthesis and audio tools
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg libasound2-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: models/whisper
+          key: whisper-large-v3-turbo-q8_0
+
+      - name: Download Whisper model (same file the app uses)
+        run: |
+          mkdir -p models/whisper
+          f=models/whisper/ggml-large-v3-turbo-q8_0.bin
+          [ -s "$f" ] || curl -L --fail --retry 3 -o "$f" \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
+          ls -la models/whisper
+
+      - name: Make spoken test clips
+        run: |
+          mkdir -p clips
+          i=0
+          while IFS= read -r line; do
+            i=$((i+1))
+            espeak-ng -s 150 -w clips/raw$i.wav "$line"
+            ffmpeg -loglevel error -y -i clips/raw$i.wav -ar 16000 -ac 1 -sample_fmt s16 clips/clip$i.wav
+            echo "clip$i: $line"
+          done <<'EOF'
+          John three sixteen
+          Romans chapter eight verse twenty eight
+          First Corinthians thirteen four
+          Turn with me to Psalm twenty three
+          Philippians four thirteen
+          So this morning we are going to look at Ephesians chapter two verses eight and nine, for by grace you have been saved through faith
+          EOF
+
+      - name: Build speed test (dev build, like bun run tauri dev)
+        working-directory: src-tauri
+        run: cargo build -p rhema-stt --features whisper --example whisper_bench
+
+      - name: Run speed test
+        working-directory: src-tauri
+        run: |
+          T=$(( $(nproc) / 2 )); [ "$T" -lt 1 ] && T=1
+          cargo run -p rhema-stt --features whisper --example whisper_bench -- \
+            ../models/whisper/ggml-large-v3-turbo-q8_0.bin $T ../clips/clip*.wav 2>/dev/null
