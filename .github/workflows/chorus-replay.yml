@@ -1,0 +1,90 @@
+name: Chorus replay
+
+# Plays a whole test sermon through the real Chorus pipeline (speech
+# detection, Whisper large-v3-turbo, detector) at real-time speed and scores
+# the verses it shows. CPU only: GitHub's machines have no graphics card.
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "src-tauri/crates/stt/**"
+      - "src-tauri/crates/audio/**"
+      - "src-tauri/crates/detection/**"
+      - "src-tauri/crates/chorus-refparse/**"
+      - "src-tauri/crates/replay/**"
+      - "scripts/chorus/**"
+      - ".github/workflows/chorus-replay.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  replay:
+    name: Sermon replay (${{ matrix.voice }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        voice: [natural, robot]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install audio tools
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg libasound2-dev
+
+      - name: Install natural voice (Piper)
+        if: matrix.voice == 'natural'
+        continue-on-error: true
+        id: piper
+        run: |
+          pip install --quiet piper-tts
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high
+          curl -L --fail --retry 3 -o ryan.onnx "$base/en_US-ryan-high.onnx"
+          curl -L --fail --retry 3 -o ryan.onnx.json "$base/en_US-ryan-high.onnx.json"
+          echo "model=$PWD/ryan.onnx" >> "$GITHUB_OUTPUT"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: replay
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: models/whisper
+          key: whisper-large-v3-turbo-q8_0
+
+      - name: Download Whisper model (same file the app uses)
+        run: |
+          mkdir -p models/whisper
+          f=models/whisper/ggml-large-v3-turbo-q8_0.bin
+          [ -s "$f" ] || curl -L --fail --retry 3 -o "$f" \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
+
+      - name: Make test sermon
+        run: python3 scripts/chorus/make-sermon.py sermon ${{ steps.piper.outputs.model }}
+
+      - name: Build replay
+        working-directory: src-tauri
+        run: cargo build -p chorus-replay
+
+      - name: Replay (clear speech)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/whisper/ggml-large-v3-turbo-q8_0.bin $(nproc) \
+            ../sermon/sermon_clean.wav ../sermon/expected.txt 2>/dev/null
+
+      - name: Replay (echo and background noise)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/whisper/ggml-large-v3-turbo-q8_0.bin $(nproc) \
+            ../sermon/sermon_noisy.wav ../sermon/expected.txt 2>/dev/null

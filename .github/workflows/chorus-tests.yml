@@ -88,4 +88,4 @@ jobs:
 
       - name: Compile the desktop app
         working-directory: src-tauri
-        run: cargo check --all-targets
+        run: cargo check --all-targets --locked

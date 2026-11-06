@@ -552,6 +552,16 @@ name = "chorus-refparse"
 version = "0.1.0"
 
 [[package]]
+name = "chorus-replay"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "rhema-detection",
+ "rhema-stt",
+ "tokio",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,17 @@
+[package]
+name = "chorus-replay"
+version = "0.1.0"
+edition = "2021"
+description = "Plays a recording through the real Chorus speech + detection pipeline and scores the verses found"
+license = "MIT"
+publish = false
+
+[dependencies]
+rhema-stt = { path = "../stt", features = ["whisper"] }
+rhema-detection = { path = "../detection" }
+tokio = { workspace = true }
+crossbeam-channel = "0.5"
+
+[features]
+cuda = ["rhema-stt/cuda"]
+vulkan = ["rhema-stt/vulkan"]

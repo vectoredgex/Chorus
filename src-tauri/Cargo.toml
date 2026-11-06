@@ -9,6 +9,7 @@ members = [
     "crates/api",
     "crates/notes",
     "crates/chorus-refparse",
+    "crates/replay",
 ]
 resolver = "2"
 
