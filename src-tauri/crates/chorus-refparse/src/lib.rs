@@ -220,6 +220,22 @@ struct VersePart {
     next: usize,
 }
 
+/// A word that sounds like "verse"/"verses" as speech-to-text mishears it in
+/// noise: a short start, then an "er/ur/or" sound, then an "s" sound
+/// ("mercer", "worse", "purse", "hers", "mers"). Only used between a
+/// chapter number and a verse number, where nothing else fits.
+fn sounds_like_verse(w: &str) -> bool {
+    const ENDINGS: &[&str] = &["se", "s", "ce", "cer", "ser", "ses", "ces", "sus", "sis"];
+    if !(3..=7).contains(&w.len()) || !w.bytes().all(|b| b.is_ascii_lowercase()) {
+        return false;
+    }
+    ["er", "ur", "or"].iter().any(|v| {
+        w.match_indices(v).any(|(i, _)| {
+            i <= 3 && ENDINGS.contains(&&w[i + 2..])
+        })
+    })
+}
+
 /// True when the words at `k` are a numbered book name ("2 Corinthians",
 /// "first John"), so the number must not be read as a chapter or verse.
 fn starts_numbered_book(t: &[String], k: usize) -> bool {
@@ -244,6 +260,10 @@ fn parse_verse(t: &[String], mut k: usize, allow_bare: bool) -> Option<VersePart
         }
     } else if !allow_bare {
         return None;
+    } else if sounds_like_verse(tok(t, k)) && num(t, k + 1).is_some() {
+        // "Ephesians 2, Mercer 8 and 9": a misheard "verses" between the
+        // chapter and the verse number.
+        k += 1;
     }
     let n = num(t, k)?;
     if n.value == 0 || n.value > MAX_VERSE as u32 {
@@ -726,6 +746,20 @@ pub fn is_song_verse(text: &str) -> bool {
 /// One-shot helper for a single phrase with no earlier context.
 pub fn detect(text: &str) -> Vec<Detection> {
     Detector::new().detect(text)
+}
+
+#[cfg(test)]
+mod verse_sound_tests {
+    use super::sounds_like_verse;
+    #[test]
+    fn misheard_verse_words() {
+        for w in ["mercer", "worse", "purse", "nurse", "hers", "mers", "verse", "versus", "horse", "verses"] {
+            assert!(sounds_like_verse(w), "{w}");
+        }
+        for w in ["were", "where", "years", "first", "says", "and", "through", "most", "is", "mercy", "herself", "person"] {
+            assert!(!sounds_like_verse(w), "{w}");
+        }
+    }
 }
 
 #[cfg(test)]
