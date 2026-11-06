@@ -600,6 +600,12 @@ fn run_direct_detection(app: &AppHandle, transcript: &str) -> bool {
         results.first().map_or("", |r| r.verse_ref.as_str())
     );
     let _ = app.emit("verse_detections", &results);
+    // Tell Whisper which passage the sermon is on, so follow-ups
+    // ("verse twenty nine") are heard correctly.
+    #[cfg(feature = "whisper")]
+    if let Some(r) = results.first() {
+        rhema_stt::whisper::set_context_hint(&r.verse_ref);
+    }
     log::info!("[DET-DIRECT] Detection took {:?} for {:?}", t0.elapsed(), truncate_safe(transcript, 50));
     has_high_confidence
 }

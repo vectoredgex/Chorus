@@ -76,6 +76,31 @@ pub fn encoder_window(samples: usize) -> i32 {
 pub const BIBLE_PROMPT: &str = "Sermon with Bible references such as John 3:16, Romans chapter 8 verse 28, \
 1 Corinthians 13:4, Psalm 23, Genesis 1:1, Philippians 4:13, Ephesians 2:8-9 and Revelation 21:4.";
 
+/// What the sermon is currently on ("Romans 8:28"), set by the app after
+/// each detected reference. Added to the prompt so Whisper expects that
+/// book and chapter: a follow-up "verse twenty nine" is then heard as a
+/// verse number, not a sound-alike phrase.
+static CONTEXT_HINT: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Tell Whisper which passage the sermon is on.
+pub fn set_context_hint(reference: &str) {
+    if let Ok(mut h) = CONTEXT_HINT.lock() {
+        h.clear();
+        h.push_str(reference);
+    }
+}
+
+/// The prompt for the next transcription: the fixed Bible hint plus the
+/// passage the sermon is currently on, if any.
+pub fn current_prompt() -> String {
+    let hint = CONTEXT_HINT.lock().map(|h| h.clone()).unwrap_or_default();
+    if hint.is_empty() {
+        BIBLE_PROMPT.to_string()
+    } else {
+        format!("{BIBLE_PROMPT} Now reading {hint}.")
+    }
+}
+
 /// Audio sent to the inference task.
 enum Job {
     /// Speech so far in an ongoing utterance. Skipped if a newer job is
@@ -374,7 +399,8 @@ impl SttProvider for WhisperProvider {
                 // Partials only need the words, not timings.
                 params.set_token_timestamps(!is_partial);
                 params.set_audio_ctx(encoder_window(audio_i16.len()));
-                params.set_initial_prompt(BIBLE_PROMPT);
+                let prompt = current_prompt();
+                params.set_initial_prompt(&prompt);
                 params.set_no_speech_thold(0.6);
                 params.set_suppress_blank(true);
                 params.set_suppress_nst(true);
@@ -438,7 +464,16 @@ impl SttProvider for WhisperProvider {
 
 #[cfg(test)]
 mod chorus_tests {
-    use super::audio_ctx_for;
+    use super::{audio_ctx_for, current_prompt, set_context_hint, BIBLE_PROMPT};
+
+    #[test]
+    fn prompt_includes_current_passage() {
+        set_context_hint("");
+        assert_eq!(current_prompt(), BIBLE_PROMPT);
+        set_context_hint("Romans 8:28");
+        assert!(current_prompt().ends_with("Now reading Romans 8:28."));
+        set_context_hint("");
+    }
 
     #[test]
     fn audio_ctx_scales_with_clip_length() {
