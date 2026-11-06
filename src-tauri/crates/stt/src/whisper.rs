@@ -56,6 +56,20 @@ pub fn audio_ctx_for(samples: usize) -> i32 {
     frames
 }
 
+/// True when Whisper was built for a graphics card (`cuda` or `vulkan`
+/// feature). On a GPU the full 30 s window is affordable, so Chorus uses it
+/// for the best accuracy instead of the clip-sized window.
+pub const GPU_BUILD: bool = cfg!(any(feature = "cuda", feature = "vulkan"));
+
+/// Encoder window for a clip: the full window on a GPU, clip-sized on CPU.
+pub fn encoder_window(samples: usize) -> i32 {
+    if GPU_BUILD {
+        1500
+    } else {
+        audio_ctx_for(samples)
+    }
+}
+
 /// Primes Whisper with how Bible references are written, so spoken book
 /// names and chapter/verse numbers come out as references ("John 3:16")
 /// instead of sound-alike words.
@@ -301,10 +315,12 @@ impl SttProvider for WhisperProvider {
         let inf_cancelled = cancelled.clone();
         let inf_event_tx = event_tx.clone();
         let inf_handle = tokio::task::spawn_blocking(move || {
-            let ctx = match WhisperContext::new_with_params(
-                &model_path,
-                WhisperContextParameters::default(),
-            ) {
+            let mut ctx_params = WhisperContextParameters::default();
+            ctx_params.use_gpu(GPU_BUILD);
+            // Flash attention speeds up the GPU path; it is not used on CPU.
+            ctx_params.flash_attn(GPU_BUILD);
+            log::info!("[Whisper] GPU build: {GPU_BUILD}");
+            let ctx = match WhisperContext::new_with_params(&model_path, ctx_params) {
                 Ok(ctx) => ctx,
                 Err(e) => {
                     log::error!("[Whisper] Failed to load model: {e}");
@@ -357,7 +373,7 @@ impl SttProvider for WhisperProvider {
                 params.set_single_segment(false);
                 // Partials only need the words, not timings.
                 params.set_token_timestamps(!is_partial);
-                params.set_audio_ctx(audio_ctx_for(audio_i16.len()));
+                params.set_audio_ctx(encoder_window(audio_i16.len()));
                 params.set_initial_prompt(BIBLE_PROMPT);
                 params.set_no_speech_thold(0.6);
                 params.set_suppress_blank(true);
@@ -379,7 +395,7 @@ impl SttProvider for WhisperProvider {
                 let audio_duration_s = audio_i16.len() as f64 / 16_000.0;
                 log::info!(
                     "[Whisper] Transcribed {audio_duration_s:.1}s audio in {elapsed:.1?} (partial={is_partial}, audio_ctx={}): \"{text}\"",
-                    audio_ctx_for(audio_i16.len())
+                    encoder_window(audio_i16.len())
                 );
 
                 if is_partial {

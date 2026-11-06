@@ -32,6 +32,11 @@ whisper-rs = { version = "0.16", optional = true }
 default = ["rest-fallback"]
 rest-fallback = ["reqwest"]
 whisper = ["dep:whisper-rs", "rhema-audio"]
+# Run Whisper on an NVIDIA graphics card (needs the CUDA Toolkit to build).
+cuda = ["whisper", "whisper-rs/cuda"]
+# Run Whisper on any Vulkan graphics card: NVIDIA, AMD or Intel
+# (needs the Vulkan SDK to build).
+vulkan = ["whisper", "whisper-rs/vulkan"]
 
 [[example]]
 name = "whisper_bench"

@@ -74,6 +74,8 @@ fontdb = "0.24.0"
 [features]
 default = ["whisper"]
 whisper = ["rhema-stt/whisper"]
+cuda = ["whisper", "rhema-stt/cuda"]
+vulkan = ["whisper", "rhema-stt/vulkan"]
 
 [lints]
 workspace = true
