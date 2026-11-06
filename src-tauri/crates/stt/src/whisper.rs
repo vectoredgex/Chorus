@@ -44,8 +44,10 @@ const MIN_WORD_SAMPLES: usize = 16_000 / 2;
 /// needs, plus a margin, cuts the work for a 2 s phrase several times over.
 pub fn audio_ctx_for(samples: usize) -> i32 {
     const FRAMES_PER_SECOND: usize = 50;
-    const MARGIN_FRAMES: usize = 128;
-    const MIN_FRAMES: usize = 256;
+    // Measured: a 256-frame minimum made Whisper invent words on real
+    // voices through a laptop mic; 512 frames kept transcripts clean.
+    const MARGIN_FRAMES: usize = 256;
+    const MIN_FRAMES: usize = 512;
     const MAX_FRAMES: usize = 1500;
     let needed = samples * FRAMES_PER_SECOND / 16_000 + MARGIN_FRAMES;
     // At most 1500, so the cast cannot truncate.
@@ -53,6 +55,12 @@ pub fn audio_ctx_for(samples: usize) -> i32 {
     let frames = needed.clamp(MIN_FRAMES, MAX_FRAMES) as i32;
     frames
 }
+
+/// Primes Whisper with how Bible references are written, so spoken book
+/// names and chapter/verse numbers come out as references ("John 3:16")
+/// instead of sound-alike words.
+pub const BIBLE_PROMPT: &str = "Sermon with Bible references such as John 3:16, Romans chapter 8 verse 28, \
+1 Corinthians 13:4, Psalm 23, Genesis 1:1, Philippians 4:13, Ephesians 2:8-9 and Revelation 21:4.";
 
 /// Audio sent to the inference task.
 enum Job {
@@ -350,6 +358,7 @@ impl SttProvider for WhisperProvider {
                 // Partials only need the words, not timings.
                 params.set_token_timestamps(!is_partial);
                 params.set_audio_ctx(audio_ctx_for(audio_i16.len()));
+                params.set_initial_prompt(BIBLE_PROMPT);
                 params.set_no_speech_thold(0.6);
                 params.set_suppress_blank(true);
                 params.set_suppress_nst(true);
@@ -417,9 +426,9 @@ mod chorus_tests {
 
     #[test]
     fn audio_ctx_scales_with_clip_length() {
-        assert_eq!(audio_ctx_for(16_000), 256); // 1 s: minimum window
-        assert_eq!(audio_ctx_for(16_000 * 5), 378); // 5 s
-        assert_eq!(audio_ctx_for(16_000 * 10), 628); // 10 s
+        assert_eq!(audio_ctx_for(16_000), 512); // 1 s: minimum window
+        assert_eq!(audio_ctx_for(16_000 * 5), 512); // 5 s
+        assert_eq!(audio_ctx_for(16_000 * 10), 756); // 10 s
         assert_eq!(audio_ctx_for(16_000 * 60), 1500); // capped at 30 s
     }
 }

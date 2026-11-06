@@ -11,7 +11,7 @@
 
 use std::time::Instant;
 
-use rhema_stt::whisper::audio_ctx_for;
+use rhema_stt::whisper::{audio_ctx_for, BIBLE_PROMPT};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 /// Minimal reader for 16-bit PCM WAV: returns samples as f32 in [-1, 1].
@@ -33,7 +33,7 @@ fn read_wav(path: &str) -> Vec<f32> {
     panic!("{path}: no data chunk");
 }
 
-fn transcribe(state: &mut whisper_rs::WhisperState, audio: &[f32], threads: i32, ctx: i32) -> (String, f64) {
+fn transcribe(state: &mut whisper_rs::WhisperState, audio: &[f32], threads: i32, ctx: i32, prompt: bool) -> (String, f64) {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_language(Some("en"));
     params.set_n_threads(threads);
@@ -46,6 +46,9 @@ fn transcribe(state: &mut whisper_rs::WhisperState, audio: &[f32], threads: i32,
     params.set_suppress_blank(true);
     params.set_suppress_nst(true);
     params.set_audio_ctx(ctx);
+    if prompt {
+        params.set_initial_prompt(BIBLE_PROMPT);
+    }
 
     let t = Instant::now();
     state.full(params, audio).expect("whisper inference");
@@ -72,7 +75,7 @@ fn main() {
 
     // Warm up once so the first clip isn't charged for allocation.
     let warm = vec![0.0f32; 16_000];
-    let _ = transcribe(&mut state, &warm, threads, 256);
+    let _ = transcribe(&mut state, &warm, threads, 512, false);
 
     println!("\n==== WHISPER SPEED (threads={threads}) ====");
     let (mut old_total, mut new_total, mut alt_total, mut audio_total) = (0.0, 0.0, 0.0, 0.0);
@@ -81,24 +84,21 @@ fn main() {
         #[expect(clippy::cast_precision_loss, reason = "clip lengths are small")]
         let dur = audio.len() as f64 / 16_000.0;
         let ctx_new = audio_ctx_for(audio.len());
-        // A roomier alternative: twice the margin, at least ~10 s of window.
-        #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap, reason = "<= 1500")]
-        let ctx_alt = (audio.len() * 50 / 16_000 + 256).clamp(512, 1500) as i32;
-        let (old_text, old_s) = transcribe(&mut state, &audio, threads, 1500);
-        let (new_text, new_s) = transcribe(&mut state, &audio, threads, ctx_new);
-        let (alt_text, alt_s) = transcribe(&mut state, &audio, threads, ctx_alt);
+        let (old_text, old_s) = transcribe(&mut state, &audio, threads, 1500, false);
+        let (alt_text, alt_s) = transcribe(&mut state, &audio, threads, ctx_new, false);
+        let (new_text, new_s) = transcribe(&mut state, &audio, threads, ctx_new, true);
         old_total += old_s;
         new_total += new_s;
         alt_total += alt_s;
         audio_total += dur;
         println!("\nclip {path} ({dur:.1}s audio)");
-        println!("  old (window 1500): {old_s:6.2}s  {old_text:?}");
-        println!("  new (window {ctx_new:4}): {new_s:6.2}s  {new_text:?}");
-        println!("  alt (window {ctx_alt:4}): {alt_s:6.2}s  {alt_text:?}");
+        println!("  old  (window 1500):          {old_s:6.2}s  {old_text:?}");
+        println!("  win  (window {ctx_new:4}):          {alt_s:6.2}s  {alt_text:?}");
+        println!("  new  (window {ctx_new:4} + prompt): {new_s:6.2}s  {new_text:?}");
     }
     println!(
-        "\nTOTAL for {audio_total:.1}s of audio: old {old_total:.2}s, new {new_total:.2}s ({:.1}x faster), alt {alt_total:.2}s ({:.1}x faster)",
-        old_total / new_total.max(1e-9),
-        old_total / alt_total.max(1e-9)
+        "\nTOTAL for {audio_total:.1}s of audio: old {old_total:.2}s, window only {alt_total:.2}s ({:.1}x faster), window + prompt {new_total:.2}s ({:.1}x faster)",
+        old_total / alt_total.max(1e-9),
+        old_total / new_total.max(1e-9)
     );
 }
