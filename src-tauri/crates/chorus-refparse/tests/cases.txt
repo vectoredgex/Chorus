@@ -280,3 +280,10 @@ the matters 3:16 => NONE
 Geddes chapter 2 => NONE
 Delibians 4.13 => NONE
 I went home at 5:30 => NONE
+
+# --- Lists of references (the number before a book is part of its name) -----
+Revelation 21, 2 Corinthians 13 => Revelation 21 [M] | 2 Corinthians 13 [M]
+Romans 8:28, 2 Corinthians 5:17 and 1 John 1:9 => Romans 8:28 [H] | 2 Corinthians 5:17 [H] | 1 John 1:9 [H]
+read John 3 16 and 1 John 4 8 => John 3:16 [H] | 1 John 4:8 [H]
+Psalm 23, 1 Kings 18 => Psalms 23 [M] | 1 Kings 18 [M]
+John 3, 16 => John 3:16 [H]

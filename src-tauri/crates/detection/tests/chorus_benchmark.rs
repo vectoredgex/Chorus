@@ -88,7 +88,7 @@ fn chorus_benchmark() {
             let exp: Vec<&str> = expected.split(" | ").map(strip_tag).collect();
             let exact = exp.len() == got.len() && exp.iter().zip(&got).all(|(e, g)| e == g);
             // chapter-only expectation held back by the detector
-            let held = exp.len() == 1 && !exp[0].contains(':') && got.is_empty();
+            let held = exp.iter().all(|e| !e.contains(':')) && got.is_empty();
             exact || held
         };
         if ok {

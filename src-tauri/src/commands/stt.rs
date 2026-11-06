@@ -385,7 +385,7 @@ pub async fn start_transcription(
                     epoch_ms(),
                     truncate_safe(&transcript, 40)
                 );
-                let direct_found = run_direct_detection(&app_clone, &transcript);
+                let direct_found = run_direct_detection(&app_clone, &transcript, is_final);
                 if !is_final {
                     return;
                 }
@@ -514,7 +514,39 @@ pub async fn start_transcription(
 /// never blocks on the semantic worker, and cooldown state persists across calls.
 /// Returns true if high-confidence results were found (>= 0.90).
 #[expect(clippy::similar_names, reason = "merger and merged are naturally named")]
-fn run_direct_detection(app: &AppHandle, transcript: &str) -> bool {
+/// References found in the previous partial transcript of the current
+/// utterance, as (book, chapter, verse).
+static PARTIAL_SEEN: Mutex<Vec<(i32, i32, i32)>> = Mutex::new(Vec::new());
+
+/// A reference read from a partial (mid-sentence) transcript is shown only
+/// once the next partial reads it the same way; the final transcript is
+/// trusted at once. Live transcripts of a few seconds of audio misread
+/// numbers more often ("John 3, verse 28" a moment before "John 3 verse 16"),
+/// and a wrong verse on the projector is worse than a short delay.
+fn confirm_partial_results(
+    results: Vec<rhema_detection::Detection>,
+    is_final: bool,
+) -> Vec<rhema_detection::Detection> {
+    let Ok(mut seen) = PARTIAL_SEEN.lock() else {
+        return results;
+    };
+    if is_final {
+        seen.clear();
+        return results;
+    }
+    let key = |d: &rhema_detection::Detection| {
+        (d.verse_ref.book_number, d.verse_ref.chapter, d.verse_ref.verse_start)
+    };
+    let current: Vec<(i32, i32, i32)> = results.iter().map(key).collect();
+    let confirmed: Vec<_> = results.into_iter().filter(|d| seen.contains(&key(d))).collect();
+    *seen = current;
+    if !confirmed.is_empty() {
+        log::info!("[DET-DIRECT] Partial confirmed by a second partial");
+    }
+    confirmed
+}
+
+fn run_direct_detection(app: &AppHandle, transcript: &str, is_final: bool) -> bool {
     use rhema_detection::{DirectDetector, DetectionMerger};
 
     let t0 = std::time::Instant::now();
@@ -528,6 +560,7 @@ fn run_direct_detection(app: &AppHandle, transcript: &str) -> bool {
     };
     let direct_results = detector.detect(transcript);
     drop(detector); // Release immediately
+    let direct_results = confirm_partial_results(direct_results, is_final);
 
     if direct_results.is_empty() {
         return false;

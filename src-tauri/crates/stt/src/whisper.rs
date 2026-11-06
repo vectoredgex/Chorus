@@ -57,17 +57,15 @@ pub fn audio_ctx_for(samples: usize) -> i32 {
 }
 
 /// True when Whisper was built for a graphics card (`cuda` or `vulkan`
-/// feature). On a GPU the full 30 s window is affordable, so Chorus uses it
-/// for the best accuracy instead of the clip-sized window.
+/// feature): the model runs on the GPU with flash attention.
 pub const GPU_BUILD: bool = cfg!(any(feature = "cuda", feature = "vulkan"));
 
-/// Encoder window for a clip: the full window on a GPU, clip-sized on CPU.
+/// Encoder window for a clip.
 pub fn encoder_window(samples: usize) -> i32 {
-    if GPU_BUILD {
-        1500
-    } else {
-        audio_ctx_for(samples)
-    }
+    // Measured on a GeForce MX550: the full window costs ~2.5 s per phrase
+    // even on the GPU, and the sized window (512-frame minimum) was as
+    // accurate in the benchmark, so the GPU uses it too.
+    audio_ctx_for(samples)
 }
 
 /// Primes Whisper with how Bible references are written, so spoken book
@@ -100,6 +98,23 @@ pub fn current_prompt() -> String {
         format!("{BIBLE_PROMPT} Now reading {hint}.")
     }
 }
+
+/// Audio is re-cut into frames of this many samples (20 ms at 16 kHz)
+/// before speech detection. Microphones deliver differently sized chunks
+/// (about 10 ms on Windows), and the detector counts frames, so fixed-size
+/// frames make its pause and onset settings mean the same time on every PC.
+const VAD_FRAME_SAMPLES: usize = 320;
+
+/// Speech-detector settings in time, converted to 20 ms frames.
+/// A phrase ends after 0.7 s of silence: long enough not to cut at a
+/// breath between words, short enough to send a reference promptly.
+const VAD_SILENCE_END_FRAMES: usize = 700 / 20;
+/// Voice must last 120 ms to count as speech (ignores clicks).
+const VAD_MIN_VOICE_FRAMES: usize = 120 / 20;
+/// Keep 300 ms of audio from before speech starts (catches the first word).
+const VAD_PRE_BUFFER_FRAMES: usize = 300 / 20;
+/// The detector's own force-flush limit, above our 10 s buffer cap.
+const VAD_MAX_UTTERANCE_FRAMES: usize = 15_000 / 20;
 
 /// Audio sent to the inference task.
 enum Job {
@@ -231,9 +246,14 @@ impl SttProvider for WhisperProvider {
             let vad_config = VadConfig {
                 silence_threshold: 0.01,
                 frame_threshold: 0.005,
-                min_voice_frames: 6,
+                min_voice_frames: VAD_MIN_VOICE_FRAMES,
+                silence_frame_count: VAD_SILENCE_END_FRAMES,
+                pre_buffer_frames: VAD_PRE_BUFFER_FRAMES,
+                max_utterance_frames: VAD_MAX_UTTERANCE_FRAMES,
                 ..VadConfig::default()
             };
+            // Microphone samples waiting to fill a 20 ms frame.
+            let mut pending: Vec<i16> = Vec::with_capacity(VAD_FRAME_SAMPLES * 4);
             let mut vad = Vad::new(vad_config);
             let mut audio_buffer: Vec<i16> = Vec::new();
             let mut frames_seen: u64 = 0;
@@ -252,7 +272,10 @@ impl SttProvider for WhisperProvider {
 
                 match audio_rx.recv_timeout(Duration::from_millis(50)) {
                     Ok(samples) => {
-                        let frame = AudioFrame { samples, timestamp_ms: 0 };
+                      pending.extend_from_slice(&samples);
+                      while pending.len() >= VAD_FRAME_SAMPLES {
+                        let chunk: Vec<i16> = pending.drain(..VAD_FRAME_SAMPLES).collect();
+                        let frame = AudioFrame { samples: chunk, timestamp_ms: 0 };
                         let result = vad.process(&frame);
 
                         if let Some(transition) = result.transition {
@@ -324,6 +347,7 @@ impl SttProvider for WhisperProvider {
                             partial_mark = audio_buffer.len();
                             let _ = inference_tx.try_send(Job::Partial(audio_buffer.clone()));
                         }
+                      }
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {

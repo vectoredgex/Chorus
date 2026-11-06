@@ -220,6 +220,16 @@ struct VersePart {
     next: usize,
 }
 
+/// True when the words at `k` are a numbered book name ("2 Corinthians",
+/// "first John"), so the number must not be read as a chapter or verse.
+fn starts_numbered_book(t: &[String], k: usize) -> bool {
+    let Some(n) = num(t, k) else { return false };
+    if n.len != 1 || !(1..=3).contains(&n.value) {
+        return false;
+    }
+    matches!(match_alias(t, k + 1).map(|a| a.target), Some(Target::Family { ids, .. }) if ids[(n.value - 1) as usize] != 0)
+}
+
 fn parse_verse(t: &[String], mut k: usize, allow_bare: bool) -> Option<VersePart> {
     let mut explicit = false;
     // "and verse 5", "at verse 28", "in verse 3"
@@ -237,6 +247,11 @@ fn parse_verse(t: &[String], mut k: usize, allow_bare: bool) -> Option<VersePart
     }
     let n = num(t, k)?;
     if n.value == 0 || n.value > MAX_VERSE as u32 {
+        return None;
+    }
+    // In a list, "Revelation 21, 2 Corinthians 13": the "2" belongs to the
+    // next book, it is not a verse.
+    if !explicit && starts_numbered_book(t, k) {
         return None;
     }
     let start = n.value as u16;
@@ -313,6 +328,9 @@ fn parse_tail(t: &[String], start: usize, book: &Book) -> Option<Tail> {
     // Speech engines write a spoken "four" as "for" right after a book
     // name: "Philippians for 13" is Philippians 4:13. Only when a number
     // follows, so "John 3 for God so loved" is unaffected.
+    if starts_numbered_book(t, k) {
+        return None;
+    }
     let c = if tok(t, k) == "for" && num(t, k + 1).is_some() && book.chapters >= 4 {
         numbers::Num { value: 4, len: 1, ordinal: false }
     } else {
