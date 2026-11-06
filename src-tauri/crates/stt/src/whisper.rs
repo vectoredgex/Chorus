@@ -24,6 +24,21 @@ const MAX_BUFFER_SAMPLES: usize = 16_000 * 10;
 /// Whisper warns "input is too short" below 1s.
 const MIN_BUFFER_SAMPLES: usize = 16_000;
 
+/// While someone is speaking, transcribe what has been said so far after
+/// this much new audio (1.5 seconds), instead of waiting for a pause.
+/// Preachers often talk for many seconds without pausing, and a reference
+/// should reach the screen while they are still mid-sentence.
+const PARTIAL_EVERY_SAMPLES: usize = 16_000 * 3 / 2;
+
+/// Audio sent to the inference task.
+enum Job {
+    /// Speech so far in an ongoing utterance. Skipped if a newer job is
+    /// already waiting, so a slow CPU never falls behind.
+    Partial(Vec<i16>),
+    /// A finished utterance. Never skipped.
+    Final(Vec<i16>),
+}
+
 /// Convert i16 PCM samples to f32 in [-1.0, 1.0] range.
 fn i16_to_f32(samples: &[i16]) -> Vec<f32> {
     samples.iter().map(|&s| f32::from(s) / 32768.0).collect()
@@ -132,7 +147,7 @@ impl SttProvider for WhisperProvider {
         let n_threads = self.n_threads;
         let cancelled = self.cancelled.clone();
 
-        let (inference_tx, mut inference_rx) = mpsc::channel::<Vec<i16>>(4);
+        let (inference_tx, mut inference_rx) = mpsc::channel::<Job>(4);
 
         // ── Task 1: VAD + audio accumulation ─────────────────────────────
         let vad_cancelled = cancelled.clone();
@@ -151,11 +166,13 @@ impl SttProvider for WhisperProvider {
             let mut vad = Vad::new(vad_config);
             let mut audio_buffer: Vec<i16> = Vec::new();
             let mut frames_seen: u64 = 0;
+            // Buffer length when the last partial was sent.
+            let mut partial_mark: usize = 0;
 
             loop {
                 if vad_cancelled.load(Ordering::SeqCst) {
                     if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                        let _ = inference_tx.blocking_send(std::mem::take(&mut audio_buffer));
+                        let _ = inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
                     }
                     break;
                 }
@@ -178,11 +195,13 @@ impl SttProvider for WhisperProvider {
                                         audio_buffer.len() as f64 / 16_000.0,
                                     );
                                     if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                                        let _ = inference_tx
-                                            .blocking_send(std::mem::take(&mut audio_buffer));
+                                        let _ = inference_tx.blocking_send(Job::Final(
+                                            std::mem::take(&mut audio_buffer),
+                                        ));
                                     } else {
                                         audio_buffer.clear();
                                     }
+                                    partial_mark = 0;
                                 }
                             }
                         }
@@ -206,13 +225,22 @@ impl SttProvider for WhisperProvider {
                                 audio_buffer.len(),
                                 audio_buffer.len() as f64 / 16_000.0,
                             );
-                            let _ = inference_tx.blocking_send(std::mem::take(&mut audio_buffer));
+                            let _ = inference_tx
+                                .blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
+                            partial_mark = 0;
+                        } else if audio_buffer.len() >= MIN_BUFFER_SAMPLES
+                            && audio_buffer.len() >= partial_mark + PARTIAL_EVERY_SAMPLES
+                        {
+                            // Never block the audio loop for a partial; if the
+                            // inference queue is full, the next one will do.
+                            partial_mark = audio_buffer.len();
+                            let _ = inference_tx.try_send(Job::Partial(audio_buffer.clone()));
                         }
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                         if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                            let _ = inference_tx.blocking_send(std::mem::take(&mut audio_buffer));
+                            let _ = inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
                         }
                         break;
                     }
@@ -251,10 +279,21 @@ impl SttProvider for WhisperProvider {
 
             log::info!("[Whisper] Model loaded, ready for inference");
 
-            while let Some(audio_i16) = inference_rx.blocking_recv() {
+            while let Some(mut job) = inference_rx.blocking_recv() {
                 if inf_cancelled.load(Ordering::SeqCst) {
                     break;
                 }
+                // A partial is stale once newer audio is queued: skip ahead.
+                while matches!(job, Job::Partial(_)) {
+                    match inference_rx.try_recv() {
+                        Ok(next) => job = next,
+                        Err(_) => break,
+                    }
+                }
+                let (audio_i16, is_partial) = match job {
+                    Job::Partial(a) => (a, true),
+                    Job::Final(a) => (a, false),
+                };
 
                 let audio_f32 = i16_to_f32(&audio_i16);
 
@@ -267,7 +306,8 @@ impl SttProvider for WhisperProvider {
                 params.set_print_special(false);
                 params.set_print_realtime(false);
                 params.set_single_segment(false);
-                params.set_token_timestamps(true);
+                // Partials only need the words, not timings.
+                params.set_token_timestamps(!is_partial);
                 params.set_no_speech_thold(0.6);
                 params.set_suppress_blank(true);
                 params.set_suppress_nst(true);
@@ -287,8 +327,16 @@ impl SttProvider for WhisperProvider {
                 #[expect(clippy::cast_precision_loss, reason = "audio sample count fits in f64")]
                 let audio_duration_s = audio_i16.len() as f64 / 16_000.0;
                 log::info!(
-                    "[Whisper] Transcribed {audio_duration_s:.1}s audio in {elapsed:.1?}: \"{text}\""
+                    "[Whisper] Transcribed {audio_duration_s:.1}s audio in {elapsed:.1?} (partial={is_partial}): \"{text}\""
                 );
+
+                if is_partial {
+                    if !text.is_empty() {
+                        let _ = inf_event_tx
+                            .blocking_send(TranscriptEvent::Partial { transcript: text, words });
+                    }
+                    continue;
+                }
 
                 if !text.is_empty() {
                     let _ = inf_event_tx.blocking_send(TranscriptEvent::Final {
