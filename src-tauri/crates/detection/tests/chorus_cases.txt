@@ -273,7 +273,8 @@ Jermiah 29:11 => Jeremiah 29:11 [M]
 Hebroos chapter 11 verse 1 => Hebrews 11:1 [M]
 Thesalonians 5:17 => 1 Thessalonians 5:17 [M]
 Exedus chapter 14 verse 14 => Exodus 14:14 [M]
-# not references: no verse, everyday words, or too far from any book
+
+# not references (a fresh sermon, so no earlier book gives "8:28" context): no verse, everyday words, or too far from any book
 romantic 8:28 => NONE
 the matters 3:16 => NONE
 Geddes chapter 2 => NONE
