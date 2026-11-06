@@ -1,0 +1,27 @@
+name: Chorus inspect dependency API
+
+# Prints parts of dependency source code into the log, for development.
+on:
+  push:
+    branches: ["chorus/**"]
+    paths: [".github/workflows/chorus-inspect.yml"]
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Fetch crates
+        working-directory: src-tauri
+        run: cargo fetch --locked
+      - name: whisper-rs VAD API
+        run: |
+          d=$(ls -d ~/.cargo/registry/src/*/whisper-rs-0.16* | head -1)
+          echo "== $d"; ls "$d/src"
+          for f in "$d"/src/vad*.rs "$d"/src/whisper_vad*.rs; do [ -f "$f" ] && { echo "==== $f"; grep -nE "pub (fn|struct|enum)|impl " "$f"; }; done
+          echo "==== FullParams vad"; grep -rnE "fn (set_)?vad|enable_vad|vad_model" "$d/src" | head -30
+          s=$(ls -d ~/.cargo/registry/src/*/whisper-rs-sys-0.15* | head -1)
+          echo "==== whisper.cpp vad params (C)"; grep -nA30 "struct whisper_vad_params {" "$s"/whisper.cpp/include/whisper.h | head -40
