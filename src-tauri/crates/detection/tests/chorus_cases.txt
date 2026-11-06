@@ -264,3 +264,18 @@ Philippians for 13. => Philippians 4:13 [H]
 So this morning we are going to look at Ephemians chapter 2 verses 8 and 9, for by grace you have been saved through faith. => Ephesians 2:8-9 [H]
 For God so loved the world => NONE
 John 3 for God so loved the world => John 3 [L]
+
+# --- Misheard book names, matched because a full reference follows -----------
+Geddes' chapter 2 verse 3. => Genesis 2:3 [M]
+Galations 5:22 => Galatians 5:22 [M]
+Revolution chapter 21 verse 4 => Revelation 21:4 [M]
+Jermiah 29:11 => Jeremiah 29:11 [M]
+Hebroos chapter 11 verse 1 => Hebrews 11:1 [M]
+Thesalonians 5:17 => 1 Thessalonians 5:17 [M]
+Exedus chapter 14 verse 14 => Exodus 14:14 [M]
+# not references: no verse, everyday words, or too far from any book
+romantic 8:28 => NONE
+the matters 3:16 => NONE
+Geddes chapter 2 => NONE
+Delibians 4.13 => NONE
+I went home at 5:30 => NONE

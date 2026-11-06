@@ -65,6 +65,9 @@ pub enum Source {
     Explicit,
     /// Filled in from the previous reference ("verse 17", "next verse").
     Context,
+    /// The book name was misheard ("Geddes chapter 2 verse 3") and matched
+    /// to the closest book because the words around it form a reference.
+    Fuzzy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,6 +345,106 @@ fn make_ref(book: u8, chapter: u16, v: &Option<VersePart>) -> Reference {
 }
 
 // ---------------------------------------------------------------------------
+// Misheard book names
+// ---------------------------------------------------------------------------
+
+/// Jaro-Winkler similarity in [0, 1].
+fn jaro_winkler(a: &str, b: &str) -> f64 {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a == b {
+        return 1.0;
+    }
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let window = (a.len().max(b.len()) / 2).saturating_sub(1);
+    let mut a_hit = vec![false; a.len()];
+    let mut b_hit = vec![false; b.len()];
+    let mut matches = 0usize;
+    for (i, ca) in a.iter().enumerate() {
+        let lo = i.saturating_sub(window);
+        let hi = (i + window + 1).min(b.len());
+        for j in lo..hi {
+            if !b_hit[j] && b[j] == *ca {
+                a_hit[i] = true;
+                b_hit[j] = true;
+                matches += 1;
+                break;
+            }
+        }
+    }
+    if matches == 0 {
+        return 0.0;
+    }
+    let (mut k, mut transpositions) = (0usize, 0usize);
+    for i in 0..a.len() {
+        if a_hit[i] {
+            while !b_hit[k] {
+                k += 1;
+            }
+            if a[i] != b[k] {
+                transpositions += 1;
+            }
+            k += 1;
+        }
+    }
+    let m = matches as f64;
+    let t = transpositions as f64 / 2.0;
+    let jaro = (m / a.len() as f64 + m / b.len() as f64 + (m - t) / m) / 3.0;
+    let prefix = a.iter().zip(&b).take(4).take_while(|(x, y)| x == y).count();
+    jaro + prefix as f64 * 0.1 * (1.0 - jaro)
+}
+
+/// Everyday words that must never be read as a misheard book name.
+const NOT_BOOKS: &[&str] = &[
+    "the", "this", "that", "there", "these", "those", "then", "than", "them", "they", "turn",
+    "open", "read", "look", "says", "said", "verse", "verses", "chapter", "chapters", "jesus",
+    "christ", "lord", "father", "grace", "faith", "people", "romantic", "romance", "matters",
+    "genius", "nations", "heaven", "going", "morning", "seven", "eleven", "number", "numbers",
+    "page", "pages", "about", "again", "where", "which", "while", "with", "from", "into", "unto",
+];
+
+/// Closest book to a word that is not itself a known name, or `None`.
+/// `min_score` depends on how strongly the following words look like a
+/// reference. The runner-up (a different book) must score clearly lower.
+fn fuzzy_book(word: &str, chapter: u16, min_score: f64) -> Option<u8> {
+    if word.chars().count() < 4
+        || !word.chars().all(char::is_alphabetic)
+        || NOT_BOOKS.contains(&word)
+    {
+        return None;
+    }
+    let mut best: Option<(f64, u8)> = None;
+    let mut second = 0.0f64;
+    for (name, target) in ALIASES {
+        if name.contains(' ') || name.len() < 5 {
+            continue;
+        }
+        let id = match target {
+            Target::One(id) => *id,
+            Target::Family { default_id: Some(id), .. } => *id,
+            Target::Family { default_id: None, .. } => continue,
+        };
+        let score = jaro_winkler(word, name);
+        match best {
+            Some((b, bid)) if score > b => {
+                if bid != id {
+                    second = second.max(b);
+                }
+                best = Some((score, id));
+            }
+            Some((_, bid)) if bid != id => second = second.max(score),
+            None => best = Some((score, id)),
+            _ => {}
+        }
+    }
+    let (score, id) = best?;
+    let valid_chapter = chapter >= 1 && chapter <= books::book(id).chapters;
+    (score >= min_score && score - second >= 0.05 && valid_chapter).then_some(id)
+}
+
+// ---------------------------------------------------------------------------
 // Detector
 // ---------------------------------------------------------------------------
 
@@ -376,6 +479,7 @@ impl Detector {
                 .try_of_form(&t, i)
                 .or_else(|| self.try_ordinal_psalm(&t, i))
                 .or_else(|| self.try_book(&t, i))
+                .or_else(|| self.try_fuzzy(&t, i))
                 .or_else(|| self.try_context(&t, i));
             match found {
                 Some((d, end)) => {
@@ -513,6 +617,30 @@ impl Detector {
         let end = k + n.len + 1;
         let r = Reference { book: 19, chapter: n.value as u16, verse_start: None, verse_end: None };
         Some(Self::emit(t, i, end, r, Confidence::High, Source::Explicit))
+    }
+
+    /// A misheard book name followed by an unmistakable chapter-and-verse
+    /// pattern: "Geddes chapter 2 verse 3", "Galations 5:22".
+    /// Only fires when the verse is spoken too, never on a bare number.
+    fn try_fuzzy(&self, t: &[String], i: usize) -> Option<(Detection, usize)> {
+        let word = t.get(i)?;
+        if match_alias(t, i).is_some() {
+            return None;
+        }
+        let mut k = i + 1;
+        let chapter_word = CHAPTER_WORDS.contains(&tok(t, k));
+        if chapter_word {
+            k += 1;
+        }
+        let c = num(t, k)?;
+        let chapter = u16::try_from(c.value).ok()?;
+        let verse = parse_verse(t, k + c.len, false)?; // needs ":" or "verse"
+        // "chapter N verse M" is the strongest pattern; "N:M" is weaker.
+        let min_score = if chapter_word { 0.78 } else { 0.85 };
+        let id = fuzzy_book(word, chapter, min_score)?;
+        let end = verse.next;
+        let r = make_ref(id, chapter, &Some(verse));
+        Some(Self::emit(t, i, end, r, Confidence::Medium, Source::Fuzzy))
     }
 
     /// Follow-ups that rely on the previous reference.

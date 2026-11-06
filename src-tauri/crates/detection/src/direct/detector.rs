@@ -653,7 +653,15 @@ impl DirectDetector {
                     verse_end: r.verse_end.map(i32::from),
                 };
                 clamp_verse_end(&mut vr);
-                let confidence = if d.confidence == Confidence::High { 1.0 } else { 0.85 };
+                // A guessed (misheard) book name stays below the auto-queue
+                // threshold, so the operator confirms it before it goes live.
+                let confidence = if d.source == chorus_refparse::Source::Fuzzy {
+                    0.75
+                } else if d.confidence == Confidence::High {
+                    1.0
+                } else {
+                    0.85
+                };
                 Some((vr, confidence))
             })
             .collect()
