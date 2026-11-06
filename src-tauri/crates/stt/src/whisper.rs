@@ -88,15 +88,37 @@ pub fn set_context_hint(reference: &str) {
     }
 }
 
-/// The prompt for the next transcription: the fixed Bible hint plus the
-/// passage the sermon is currently on, if any.
-pub fn current_prompt() -> String {
+/// The prompt for the next transcription: the fixed Bible hint, the
+/// passage the sermon is currently on, and the end of what was just said.
+/// Whisper reads the prompt as the text that came before the audio, so the
+/// previous sentence helps it continue a reference split across a pause
+/// ("Let us turn to" ... "John chapter 9").
+pub fn current_prompt(previous: &str) -> String {
     let hint = CONTEXT_HINT.lock().map(|h| h.clone()).unwrap_or_default();
-    if hint.is_empty() {
-        BIBLE_PROMPT.to_string()
-    } else {
-        format!("{BIBLE_PROMPT} Now reading {hint}.")
+    let mut prompt = BIBLE_PROMPT.to_string();
+    if !hint.is_empty() {
+        prompt.push_str(" Now reading ");
+        prompt.push_str(&hint);
+        prompt.push('.');
     }
+    let tail = last_words(previous, PREVIOUS_WORDS);
+    if !tail.is_empty() {
+        prompt.push(' ');
+        prompt.push_str(&tail);
+    }
+    prompt
+}
+
+/// How many words of the previous transcript go into the prompt. Kept short:
+/// a long carried-over context is what makes Whisper start repeating itself.
+const PREVIOUS_WORDS: usize = 20;
+
+/// Previous text older than this is not carried over (a new thought).
+const PREVIOUS_TEXT_MAX_AGE: Duration = Duration::from_secs(20);
+
+fn last_words(text: &str, n: usize) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    words[words.len().saturating_sub(n)..].join(" ")
 }
 
 /// Audio is re-cut into frames of this many samples (20 ms at 16 kHz)
@@ -393,6 +415,10 @@ impl SttProvider for WhisperProvider {
 
             log::info!("[Whisper] Model loaded, ready for inference");
 
+            // The last final transcript, carried into the next prompt.
+            let mut previous_text = String::new();
+            let mut previous_at: Option<std::time::Instant> = None;
+
             while let Some(mut job) = inference_rx.blocking_recv() {
                 if inf_cancelled.load(Ordering::SeqCst) {
                     break;
@@ -423,7 +449,8 @@ impl SttProvider for WhisperProvider {
                 // Partials only need the words, not timings.
                 params.set_token_timestamps(!is_partial);
                 params.set_audio_ctx(encoder_window(audio_i16.len()));
-                let prompt = current_prompt();
+                let fresh = previous_at.is_some_and(|t| t.elapsed() < PREVIOUS_TEXT_MAX_AGE);
+                let prompt = current_prompt(if fresh { &previous_text } else { "" });
                 params.set_initial_prompt(&prompt);
                 params.set_no_speech_thold(0.6);
                 params.set_suppress_blank(true);
@@ -459,6 +486,8 @@ impl SttProvider for WhisperProvider {
                 }
 
                 if !text.is_empty() {
+                    previous_text.clone_from(&text);
+                    previous_at = Some(std::time::Instant::now());
                     let _ = inf_event_tx.blocking_send(TranscriptEvent::Final {
                         transcript: text,
                         words,
@@ -495,9 +524,10 @@ mod chorus_tests {
     #[test]
     fn prompt_includes_current_passage() {
         set_context_hint("");
-        assert_eq!(current_prompt(), BIBLE_PROMPT);
+        assert_eq!(current_prompt(""), BIBLE_PROMPT);
         set_context_hint("Romans 8:28");
-        assert!(current_prompt().ends_with("Now reading Romans 8:28."));
+        assert!(current_prompt("").ends_with("Now reading Romans 8:28."));
+        assert!(current_prompt("so let us turn to").ends_with("Romans 8:28. so let us turn to"));
         set_context_hint("");
     }
 
