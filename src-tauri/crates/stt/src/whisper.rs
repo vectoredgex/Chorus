@@ -30,6 +30,30 @@ const MIN_BUFFER_SAMPLES: usize = 16_000;
 /// should reach the screen while they are still mid-sentence.
 const PARTIAL_EVERY_SAMPLES: usize = 16_000 * 3 / 2;
 
+/// A speech piece shorter than `MIN_BUFFER_SAMPLES` (a single word such as
+/// "John" before a short pause) is kept and joined to the next piece, unless
+/// the next one starts more than this long after it.
+const SHORT_PIECE_JOIN_WINDOW: Duration = Duration::from_millis(2_500);
+
+/// Pieces shorter than this (0.5 s) are clicks and breaths, not words, and
+/// are dropped as before.
+const MIN_WORD_SAMPLES: usize = 16_000 / 2;
+
+/// Whisper normally encodes a fixed 30 s window (1500 frames of 20 ms) no
+/// matter how short the clip is. Encoding only as many frames as the clip
+/// needs, plus a margin, cuts the work for a 2 s phrase several times over.
+fn audio_ctx_for(samples: usize) -> i32 {
+    const FRAMES_PER_SECOND: usize = 50;
+    const MARGIN_FRAMES: usize = 128;
+    const MIN_FRAMES: usize = 256;
+    const MAX_FRAMES: usize = 1500;
+    let needed = samples * FRAMES_PER_SECOND / 16_000 + MARGIN_FRAMES;
+    // At most 1500, so the cast cannot truncate.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap, reason = "clamped to 1500")]
+    let frames = needed.clamp(MIN_FRAMES, MAX_FRAMES) as i32;
+    frames
+}
+
 /// Audio sent to the inference task.
 enum Job {
     /// Speech so far in an ongoing utterance. Skipped if a newer job is
@@ -168,6 +192,8 @@ impl SttProvider for WhisperProvider {
             let mut frames_seen: u64 = 0;
             // Buffer length when the last partial was sent.
             let mut partial_mark: usize = 0;
+            // When the last too-short piece ended (it is still in the buffer).
+            let mut short_piece_at: Option<std::time::Instant> = None;
 
             loop {
                 if vad_cancelled.load(Ordering::SeqCst) {
@@ -185,6 +211,15 @@ impl SttProvider for WhisperProvider {
                         if let Some(transition) = result.transition {
                             match transition {
                                 VadTransition::SpeechStarted => {
+                                    // Drop a leftover short piece that is too old
+                                    // to belong to this utterance.
+                                    if short_piece_at
+                                        .is_some_and(|t| t.elapsed() > SHORT_PIECE_JOIN_WINDOW)
+                                    {
+                                        audio_buffer.clear();
+                                        partial_mark = 0;
+                                    }
+                                    short_piece_at = None;
                                     let _ = vad_event_tx
                                         .blocking_send(TranscriptEvent::SpeechStarted);
                                 }
@@ -198,10 +233,16 @@ impl SttProvider for WhisperProvider {
                                         let _ = inference_tx.blocking_send(Job::Final(
                                             std::mem::take(&mut audio_buffer),
                                         ));
-                                    } else {
+                                        partial_mark = 0;
+                                    } else if audio_buffer.len() >= MIN_WORD_SAMPLES {
+                                        // Too short alone ("John"); keep it so it
+                                        // is transcribed with what follows.
+                                        short_piece_at = Some(std::time::Instant::now());
+                                    } else if short_piece_at.is_none() {
+                                        // A click or breath on its own: drop it.
                                         audio_buffer.clear();
+                                        partial_mark = 0;
                                     }
-                                    partial_mark = 0;
                                 }
                             }
                         }
@@ -308,6 +349,7 @@ impl SttProvider for WhisperProvider {
                 params.set_single_segment(false);
                 // Partials only need the words, not timings.
                 params.set_token_timestamps(!is_partial);
+                params.set_audio_ctx(audio_ctx_for(audio_i16.len()));
                 params.set_no_speech_thold(0.6);
                 params.set_suppress_blank(true);
                 params.set_suppress_nst(true);
@@ -327,7 +369,8 @@ impl SttProvider for WhisperProvider {
                 #[expect(clippy::cast_precision_loss, reason = "audio sample count fits in f64")]
                 let audio_duration_s = audio_i16.len() as f64 / 16_000.0;
                 log::info!(
-                    "[Whisper] Transcribed {audio_duration_s:.1}s audio in {elapsed:.1?} (partial={is_partial}): \"{text}\""
+                    "[Whisper] Transcribed {audio_duration_s:.1}s audio in {elapsed:.1?} (partial={is_partial}, audio_ctx={}): \"{text}\"",
+                    audio_ctx_for(audio_i16.len())
                 );
 
                 if is_partial {
@@ -365,5 +408,18 @@ impl SttProvider for WhisperProvider {
 
     fn name(&self) -> &'static str {
         "whisper"
+    }
+}
+
+#[cfg(test)]
+mod chorus_tests {
+    use super::audio_ctx_for;
+
+    #[test]
+    fn audio_ctx_scales_with_clip_length() {
+        assert_eq!(audio_ctx_for(16_000), 256); // 1 s: minimum window
+        assert_eq!(audio_ctx_for(16_000 * 5), 378); // 5 s
+        assert_eq!(audio_ctx_for(16_000 * 10), 628); // 10 s
+        assert_eq!(audio_ctx_for(16_000 * 60), 1500); // capped at 30 s
     }
 }
