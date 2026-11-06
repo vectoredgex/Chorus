@@ -272,7 +272,7 @@ export function OutputEditorDialog({
                     id="ndi-source"
                     value={form.ndi.sourceName}
                     onChange={(e) => patchNdi({ sourceName: e.target.value })}
-                    placeholder="Rhema Output"
+                    placeholder="Chorus Output"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">

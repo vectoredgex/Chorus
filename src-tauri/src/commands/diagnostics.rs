@@ -131,7 +131,7 @@ fn header(
     last: Option<&str>,
 ) -> String {
     format!(
-        "==== Rhema diagnostic log ====\n\
+        "==== Chorus diagnostic log ====\n\
          app version : {version}\n\
          platform    : {} {}\n\
          window      : {window}\n\

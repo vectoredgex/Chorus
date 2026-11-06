@@ -6,6 +6,6 @@
 	     requires a purpose string for microphone access; it is the text shown
 	     in the permission prompt and in System Settings > Privacy & Security. -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Rhema listens to the message so it can follow along and put the scripture being read on screen.</string>
+	<string>Chorus listens to the message so it can follow along and put the scripture being read on screen.</string>
 </dict>
 </plist>

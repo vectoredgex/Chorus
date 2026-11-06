@@ -12,7 +12,7 @@ const sampleLiveVerse = {
 }
 
 const ndiDefaults = {
-  sourceName: "Rhema",
+  sourceName: "Chorus",
   resolution: "r1080p",
   frameRate: "fps24",
   alphaMode: "straightAlpha",

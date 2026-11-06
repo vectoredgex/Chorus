@@ -85,7 +85,7 @@ pub async fn ensure_broadcast_window(
         &label,
         WebviewUrl::App(window_url(&output_id).into()),
     )
-    .title(title.unwrap_or_else(|| "Rhema Output".to_string()))
+    .title(title.unwrap_or_else(|| "Chorus Output".to_string()))
     .inner_size(1920.0, 1080.0)
     .visible(false)
     .skip_taskbar(true)
@@ -146,7 +146,7 @@ pub async fn open_broadcast_window(
             &label,
             WebviewUrl::App(window_url(&output_id).into()),
         )
-        .title(title.unwrap_or_else(|| "Rhema Output".to_string()))
+        .title(title.unwrap_or_else(|| "Chorus Output".to_string()))
         .visible(false)
         .decorations(true)
         .always_on_top(false)

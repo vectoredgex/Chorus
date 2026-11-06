@@ -31,7 +31,29 @@ jobs:
       - name: Accuracy benchmark (sermon phrase set)
         working-directory: src-tauri
         run: cargo test -p rhema-detection --test chorus_benchmark -- --nocapture
+        env:
+          # Fail the build if accuracy drops below 99%.
+          CHORUS_BENCH_MIN: "0.99"
 
       - name: Existing detection unit tests
         working-directory: src-tauri
         run: cargo test -p rhema-detection --lib
+
+  frontend:
+    name: Interface tests and type check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun run typecheck
+
+      - name: Interface tests
+        run: bunx vitest run

@@ -1,8 +1,8 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Rhema",
+  "productName": "Chorus",
   "version": "0.3.2",
-  "identifier": "com.openbezal.rhema",
+  "identifier": "com.vectoredgex.chorus",
   "build": {
     "frontendDist": "../build",
     "devUrl": "http://localhost:3000",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Rhema",
+        "title": "Chorus",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,
