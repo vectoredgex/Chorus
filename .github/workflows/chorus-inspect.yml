@@ -55,3 +55,11 @@ jobs:
           echo "==== sherpa-onnx-sys build.rs"; head -120 sherpa-onnx-sys-2.0.1/build.rs
           echo "==== parakeet-rs lib"; grep -rn "pub fn\|pub struct" parakeet-rs-0.4.4/src | head -60
           sed -n '1,80p' parakeet-rs-0.4.4/README.md
+
+      - name: sherpa-onnx offline ASR API (full)
+        continue-on-error: true
+        run: |
+          cd /tmp/cr
+          sed -n '1,120p;440,800p' sherpa-onnx-2.0.1/src/offline_asr.rs
+          echo "==== sys build.rs archive names"; grep -n "archive\|windows\|msvc\|static\|\.tar" sherpa-onnx-sys-2.0.1/build.rs | sed -n '1,120p'
+          echo "==== README"; sed -n '1,120p' sherpa-onnx-2.0.1/README.md
