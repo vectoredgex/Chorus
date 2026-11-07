@@ -41,3 +41,7 @@ vulkan = ["whisper", "whisper-rs/vulkan"]
 [[example]]
 name = "whisper_bench"
 required-features = ["whisper"]
+
+[[example]]
+name = "whisper_lines"
+required-features = ["whisper"]

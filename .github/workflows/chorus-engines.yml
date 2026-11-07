@@ -1,0 +1,119 @@
+name: Chorus speech engines
+
+# Compares speech engines on the test sermon, one line at a time:
+# Whisper large-v3-turbo (what the app uses) and NVIDIA Parakeet TDT 0.6B v2
+# (sherpa-onnx, int8). Same clips, same CPU, same Chorus detector; prints a
+# table of verses right / wrong and time per line. CPU only.
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "scripts/chorus/compare-engines.py"
+      - "scripts/chorus/parakeet_lines.py"
+      - "src-tauri/crates/replay/src/bin/**"
+      - "src-tauri/crates/stt/examples/whisper_lines.rs"
+      - ".github/workflows/chorus-engines.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-engines-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engines:
+    name: Engines (${{ matrix.voice }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        voice: [natural, robot]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install audio tools
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg libasound2-dev
+          pip install --quiet sherpa-onnx numpy
+
+      - name: Install natural voice (Piper)
+        if: matrix.voice == 'natural'
+        continue-on-error: true
+        id: piper
+        run: |
+          pip install --quiet piper-tts
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high
+          curl -L --fail --retry 3 -o ryan.onnx "$base/en_US-ryan-high.onnx"
+          curl -L --fail --retry 3 -o ryan.onnx.json "$base/en_US-ryan-high.onnx.json"
+          echo "model=$PWD/ryan.onnx" >> "$GITHUB_OUTPUT"
+
+      - name: Identify CPU
+        id: cpu
+        run: echo "id=$(grep -m1 'model name' /proc/cpuinfo | md5sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: engines-${{ steps.cpu.outputs.id }}
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/whisper
+            models/parakeet
+          key: engines-whisper-turbo-q8-parakeet-v2-int8
+
+      - name: Download models
+        run: |
+          mkdir -p models/whisper models/parakeet
+          f=models/whisper/ggml-large-v3-turbo-q8_0.bin
+          [ -s "$f" ] || curl -L --fail --retry 3 -o "$f" \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
+          p=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          if [ ! -s "$p/encoder.int8.onnx" ]; then
+            curl -L --fail --retry 3 -o pk.tar.bz2 \
+              https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+            tar xjf pk.tar.bz2 -C models/parakeet && rm pk.tar.bz2
+          fi
+          ls -la "$p"
+
+      - name: Make test sermon (clear + noisy line clips)
+        run: |
+          python3 scripts/chorus/make-sermon.py sermon ${{ steps.piper.outputs.model }}
+          for f in sermon/line??.wav; do
+            ffmpeg -nostdin -loglevel error -y -i "$f" \
+              -f lavfi -i "anoisesrc=color=pink:amplitude=0.03:sample_rate=16000:seed=11" \
+              -filter_complex "[0:a]aecho=0.8:0.5:60:0.35,lowpass=3800[v];[v][1:a]amix=inputs=2:duration=first:weights=1 0.6" \
+              -ar 16000 -ac 1 -sample_fmt s16 "${f%.wav}_noisy.wav"
+          done
+
+      - name: Build tools
+        working-directory: src-tauri
+        run: |
+          cargo build --release -p rhema-stt --features whisper --example whisper_lines
+          cargo build --release -p chorus-replay --bin detect-lines
+
+      - name: Transcribe
+        run: |
+          T=$(nproc)
+          W=src-tauri/target/release/examples/whisper_lines
+          P=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          mkdir -p out
+          for cond in clear noisy; do
+            if [ $cond = clear ]; then clips=$(ls sermon/line??.wav); else clips=$(ls sermon/line??_noisy.wav); fi
+            $W models/whisper/ggml-large-v3-turbo-q8_0.bin $T $clips 2>/dev/null > out/whisper_$cond.txt
+            python3 scripts/chorus/parakeet_lines.py $P $T $clips > out/parakeet_$cond.txt
+          done
+          for f in out/*.txt; do echo "==== $f"; cat "$f"; done
+
+      - name: Detect and score
+        run: |
+          for f in out/*.txt; do
+            src-tauri/target/release/detect-lines "$f" > "${f%.txt}.tsv"
+          done
+          python3 scripts/chorus/compare-engines.py sermon out/whisper_clear.tsv out/parakeet_clear.tsv out/whisper_noisy.tsv out/parakeet_noisy.tsv
