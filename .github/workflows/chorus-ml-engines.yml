@@ -59,11 +59,14 @@ jobs:
     name: ${{ matrix.engine }} (${{ matrix.voice }})
     needs: audio
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        engine: [indicconformer, indicconformer-alt, whisper-ml, whisper-turbo]
+        # Whisper (medium-ml, large-v3-turbo) was dropped after taking over
+        # 20 minutes for 42 short clips on CI CPUs; IndicConformer took 0.4 s
+        # per line. Run them again with workflow_dispatch if ever needed.
+        engine: [indicconformer]
         voice: [natural, robot]
     steps:
       - uses: actions/checkout@v5
@@ -79,6 +82,8 @@ jobs:
           pip install --quiet soundfile numpy huggingface_hub
           case "${{ matrix.engine }}" in
             indicconformer*) pip install --quiet sherpa-onnx ;;
+            indic-transcribe) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+               pip install --quiet transformers sentencepiece accelerate ;;
             *) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet transformers ;;
           esac
@@ -88,6 +93,8 @@ jobs:
           path: ~/.cache/huggingface/hub
           key: ml-engines-hf-${{ matrix.engine }}-v1
       - name: Transcribe
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           mkdir -p out
           E=${{ matrix.engine }}; V=${{ matrix.voice }}; T=$(nproc)

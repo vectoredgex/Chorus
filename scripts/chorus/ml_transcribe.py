@@ -12,6 +12,9 @@ Engines:
   whisper-ml          Whisper medium fine-tuned for Malayalam (thennal)
   whisper-turbo       Whisper large-v3-turbo, language set to Malayalam
                       (the Whisper Chorus ships today)
+  indic-transcribe    Bodhan AI / AI4Bharat Indic-Transcribe core (1.2B,
+                      Canary-based, Sept 2026). Gated: needs HF_TOKEN from an
+                      account that accepted its licence.
 
 Usage: python3 ml_transcribe.py <engine> <threads> <clip.wav>...
 """
@@ -63,6 +66,35 @@ def whisper(repo, threads):
     return run
 
 
+def indic_transcribe(threads):
+    import os
+    import torch
+    from huggingface_hub import snapshot_download
+    torch.set_num_threads(threads)
+    model_dir = snapshot_download("bodhan-ai/indic-transcribe-core",
+                                  token=os.environ.get("HF_TOKEN"),
+                                  ignore_patterns=["nemo/*", "*.png"])
+    req = os.path.join(model_dir, "requirements.txt")
+    if os.path.exists(req):
+        import subprocess
+        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "-r", req], check=False)
+    sys.path.insert(0, model_dir)  # the model code ships inside the download
+    from indic_transcribe import IndicTranscribe
+    asr = IndicTranscribe.from_pretrained(model_dir)
+
+    def run(wav):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav") as f:
+            sf.write(f.name, wav, 16000)
+            out = asr(f.name, lang="ml")
+        if isinstance(out, dict):
+            out = out.get("text", "")
+        elif isinstance(out, (list, tuple)):
+            out = " ".join(o if isinstance(o, str) else o.get("text", "") for o in out)
+        return str(out)
+    return run
+
+
 def main():
     engine, threads, clips = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
     if engine == "indicconformer":
@@ -73,6 +105,8 @@ def main():
                      "model.onnx", "tokens.txt", threads)
     elif engine == "whisper-ml":
         run = whisper("thennal/whisper-medium-ml", threads)
+    elif engine == "indic-transcribe":
+        run = indic_transcribe(threads)
     elif engine == "whisper-turbo":
         run = whisper("openai/whisper-large-v3-turbo", threads)
     else:
