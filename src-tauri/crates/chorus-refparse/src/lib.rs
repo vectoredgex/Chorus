@@ -705,9 +705,19 @@ impl Detector {
         }
         let c = num(t, k)?;
         let chapter = u16::try_from(c.value).ok()?;
-        let verse = parse_verse(t, k + c.len, false)?; // needs ":" or "verse"
+        // Needs ":" or "verse", or Parakeet's "N-M" style ("Doshu 1-9").
+        let dash = !chapter_word && tok(t, k + c.len) == "-" && tok(t, k + c.len + 2) != ":";
+        let verse = if dash {
+            let mut v = parse_verse(t, k + c.len + 1, true)?;
+            v.explicit = true;
+            v
+        } else {
+            parse_verse(t, k + c.len, false)?
+        };
         // "chapter N verse M" is the strongest pattern; "N:M" is weaker.
-        let min_score = if chapter_word { 0.78 } else { 0.85 };
+        // "N-M" right after an unknown word is almost always a reference
+        // whose book name was misheard.
+        let min_score = if chapter_word { 0.78 } else if dash { 0.80 } else { 0.85 };
         let id = fuzzy_book(word, chapter, min_score)?;
         let end = verse.next;
         let r = make_ref(id, chapter, &Some(verse));
@@ -722,7 +732,15 @@ impl Detector {
         if tok(t, k) == "the" {
             k += 1;
         }
-        if tok(t, k) == "next" && VERSE_WORDS.contains(&tok(t, k + 1)) {
+        if tok(t, k) == "very" {
+            k += 1;
+        }
+        // "next verse", also misheard as "next merse".
+        // A short command on its own ("Next was", "next shows") is also
+        // "next verse" heard badly; inside a longer sentence it is not.
+        let short_s_word = |w: &str| t.len() <= 4 && w.len() >= 3 && w.ends_with('s') && w.bytes().all(|b| b.is_ascii_lowercase());
+        let w = tok(t, k + 1);
+        if tok(t, k) == "next" && (VERSE_WORDS.contains(&w) || sounds_like_verse(w) || short_s_word(w)) {
             let v = last.verse_end.or(last.verse_start)? + 1;
             let r = Reference { verse_start: Some(v), verse_end: None, ..last };
             return Some(Self::emit(t, i, k + 2, r, Confidence::Medium, Source::Context));
@@ -733,6 +751,17 @@ impl Detector {
                 let r = Reference { verse_start: Some(n.value as u16), verse_end: None, ..last };
                 return Some(Self::emit(t, i, k + n.len + 1, r, Confidence::Medium, Source::Context));
             }
+        }
+        // "the book of <misheard word> chapter 4 verse 3": the speaker named a
+        // new book that the speech engine lost. Borrowing the last book here
+        // shows a confidently wrong verse, so wait for a clear repeat instead.
+        let named_lost_book = (1..=3).any(|b| {
+            i > b
+                && matches!(tok(t, i - b - 1), "book" | "gospel" | "epistle" | "letter")
+                && tok(t, i - b) == "of"
+        });
+        if named_lost_book {
+            return None;
         }
         // "chapter 4 verse 5", "chapter 5"
         if CHAPTER_WORDS.contains(&tok(t, i)) {
@@ -748,8 +777,10 @@ impl Detector {
             let r = make_ref(last.book, c.value as u16, &verse);
             return Some(Self::emit(t, i, end, r, conf, Source::Context));
         }
-        // "verse 17", "verses 3 to 5"
-        if VERSE_WORDS.contains(&tok(t, i)) {
+        // "verse 17", "verses 3 to 5". If a "chapter N" just before it was
+        // rejected above, this verse belongs to that unknown chapter too.
+        let after_rejected_chapter = (2..=3).any(|b| i >= b && CHAPTER_WORDS.contains(&tok(t, i - b)));
+        if VERSE_WORDS.contains(&tok(t, i)) && !after_rejected_chapter {
             let v = parse_verse(t, i, false)?;
             let end = v.next;
             let r = make_ref(last.book, last.chapter, &Some(v));
