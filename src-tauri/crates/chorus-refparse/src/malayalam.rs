@@ -145,6 +145,96 @@ const BOOKS: &[(&str, &[&str])] = &[
     ("revelation", &["വെളിപ്പാട്", "വെളിപാട്"]),
 ];
 
+/// English book names as a Malayalam speech engine writes them when a
+/// preacher says them in English ("ജോൺ ത്രീ സിക്സ്റ്റീൻ").
+const ENGLISH_BOOKS: &[(&str, &[&str])] = &[
+    ("genesis", &["ജെനസിസ്", "ജനസിസ്", "ജെനിസിസ്"]),
+    ("exodus", &["എക്സോഡസ്", "എക്സൊഡസ്"]),
+    ("leviticus", &["ലെവിറ്റിക്കസ്", "ലേവിറ്റിക്കസ്"]),
+    ("numbers", &["നമ്പേഴ്സ്", "നമ്പർസ്"]),
+    ("deuteronomy", &["ഡ്യൂട്ടറോണമി", "ഡ്യൂറ്ററോണമി", "ഡിയൂട്ടറോണമി"]),
+    ("joshua", &["ജോഷ്വ", "ജോഷ്വാ", "ജോഷുവ"]),
+    ("judges", &["ജഡ്ജസ്"]),
+    ("ruth", &["റൂത്ത്"]),
+    ("samuel", &["സാമുവൽ", "സാമുവേൽ", "സാമുവെൽ"]),
+    ("kings", &["കിങ്സ്", "കിംഗ്സ്"]),
+    ("chronicles", &["ക്രോണിക്കിൾസ്", "ക്രോണിക്കിൾ"]),
+    ("nehemiah", &["നെഹമിയ", "നെഹെമിയ"]),
+    ("esther", &["എസ്തർ", "എസ്ഥർ"]),
+    ("psalms", &["സാംസ്", "സാം", "സാംസ്‌", "സോം"]),
+    ("proverbs", &["പ്രോവെർബ്സ്", "പ്രോവർബ്സ്", "പ്രൊവെർബ്സ്"]),
+    ("ecclesiastes", &["എക്ലീസിയാസ്റ്റസ്", "എക്ലീസിയസ്റ്റസ്"]),
+    ("isaiah", &["ഐസയ", "ഐസയ്യ", "ഐസൈയ", "ഐസായ", "ഇസയ്യ"]),
+    ("jeremiah", &["ജെറമിയ", "ജെറമിയാ", "ജെറെമിയ"]),
+    ("lamentations", &["ലാമെന്റേഷൻസ്"]),
+    ("ezekiel", &["എസീക്കിയൽ", "എസെക്കിയൽ", "ഇസീക്കിയൽ"]),
+    ("daniel", &["ഡാനിയേൽ", "ഡാനിയൽ"]),
+    ("hosea", &["ഹോസിയ", "ഹോസിയാ"]),
+    ("joel", &["ജോയൽ", "ജോവൽ"]),
+    ("obadiah", &["ഒബദിയ", "ഒബദിയാ"]),
+    ("jonah", &["ജോണ", "ജോനാ"]),
+    ("micah", &["മൈക്ക", "മൈക്കാ"]),
+    ("habakkuk", &["ഹബക്കുക്ക്", "ഹബക്കുക്"]),
+    ("zephaniah", &["സെഫനിയ", "സെഫനിയാ"]),
+    ("haggai", &["ഹഗായ്", "ഹഗായി"]),
+    ("zechariah", &["സെക്കറിയ", "സക്കറിയ"]),
+    ("malachi", &["മലാക്കി", "മലാഖൈ"]),
+    ("matthew", &["മാത്യു", "മാത്യൂ", "മാത്ത്യു"]),
+    ("mark", &["മാർക്ക്", "മാർക്"]),
+    ("luke", &["ലൂക്ക്", "ലൂക്"]),
+    ("john", &["ജോൺ", "ജോണ്"]),
+    ("acts", &["ആക്ട്സ്", "ആക്ട്സ്‌"]),
+    ("romans", &["റോമൻസ്", "റോമൻസ്‌"]),
+    ("corinthians", &["കൊരിന്ത്യൻസ്", "കൊറിന്ത്യൻസ്", "കൊരിന്തിയൻസ്", "കൊറിന്തിയൻസ്"]),
+    ("galatians", &["ഗലേഷ്യൻസ്", "ഗലാത്യൻസ്", "ഗലേഷ്യൻസ്"]),
+    ("ephesians", &["എഫേഷ്യൻസ്", "എഫീഷ്യൻസ്", "എഫെഷ്യൻസ്"]),
+    ("philippians", &["ഫിലിപ്പിയൻസ്", "ഫിലിപ്പിയൻസ്‌", "ഫിലിപ്പിൻസ്"]),
+    ("colossians", &["കൊളോസിയൻസ്", "കൊലോസിയൻസ്", "കൊളൊസ്സിയൻസ്"]),
+    ("thessalonians", &["തെസലോനിയൻസ്", "തെസ്സലോനിയൻസ്", "തെസ്സലൊനിയൻസ്"]),
+    ("timothy", &["തിമോത്തി", "ടിമോത്തി", "തിമൊത്തി"]),
+    ("titus", &["ടൈറ്റസ്"]),
+    ("philemon", &["ഫിലെമോൻ", "ഫിലേമൻ"]),
+    ("hebrews", &["ഹീബ്രൂസ്", "ഹീബ്രൂ"]),
+    ("james", &["ജെയിംസ്", "ജെയിംസ്‌", "ജേംസ്"]),
+    ("peter", &["പീറ്റർ"]),
+    ("jude", &["ജൂഡ്"]),
+    ("revelation", &["റെവലേഷൻ", "റവലേഷൻ", "റെവലേഷൻസ്", "റിവലേഷൻ"]),
+];
+
+/// English number and reference words in Malayalam letters.
+const ENGLISH_WORDS: &[(&str, &[&str])] = &[
+    ("one", &["വൺ"]), ("two", &["ടു", "ടൂ"]), ("three", &["ത്രീ"]), ("four", &["ഫോർ"]),
+    ("five", &["ഫൈവ്"]), ("six", &["സിക്സ്"]), ("seven", &["സെവൻ"]),
+    ("eight", &["എയ്റ്റ്", "എയ്ട്ട്", "എയിറ്റ്", "എട്ട്‌"]), ("nine", &["നൈൻ"]),
+    ("ten", &["ടെൻ"]), ("eleven", &["ഇലവൻ"]), ("twelve", &["ട്വൽവ്", "ട്വെൽവ്"]),
+    ("thirteen", &["തെർട്ടീൻ", "തേർട്ടീൻ", "തർട്ടീൻ"]), ("fourteen", &["ഫോർട്ടീൻ"]),
+    ("fifteen", &["ഫിഫ്റ്റീൻ"]), ("sixteen", &["സിക്സ്റ്റീൻ"]), ("seventeen", &["സെവന്റീൻ"]),
+    ("eighteen", &["എയ്റ്റീൻ", "എയിറ്റീൻ"]), ("nineteen", &["നൈന്റീൻ"]),
+    ("twenty", &["ട്വന്റി", "ട്വെന്റി"]), ("thirty", &["തെർട്ടി", "തേർട്ടി", "തർട്ടി"]),
+    ("forty", &["ഫോർട്ടി"]), ("fifty", &["ഫിഫ്റ്റി"]), ("sixty", &["സിക്സ്റ്റി"]),
+    ("seventy", &["സെവന്റി"]), ("eighty", &["എയ്റ്റി", "എയിറ്റി"]), ("ninety", &["നൈന്റി"]),
+    ("hundred", &["ഹൺഡ്രഡ്", "ഹണ്ട്രഡ്"]),
+    ("first", &["ഫസ്റ്റ്"]), ("second", &["സെക്കൻഡ്", "സെക്കന്റ്"]), ("third", &["തേർഡ്", "തേഡ്"]),
+    ("verse", &["വേഴ്സ്", "വെർസ്", "വേർസ്", "വേഴ്‌സ്"]), ("verses", &["വേഴ്സസ്", "വെർസസ്"]),
+    ("to", &["ടു"]), ("and", &["ആൻഡ്", "ആന്റ്"]), ("of", &["ഓഫ്"]), ("the", &["ദ"]),
+    ("song", &["സോങ്", "സോംഗ്"]), ("solomon", &["സോളമൻ", "സോളമന്റെ"]),
+];
+
+fn english_word(word: &str) -> Option<&'static str> {
+    static M: OnceLock<HashMap<String, &'static str>> = OnceLock::new();
+    let m = M.get_or_init(|| {
+        let mut m = HashMap::new();
+        for (en, forms) in ENGLISH_WORDS {
+            for f in *forms {
+                // "ടു" is "two" unless it sits between numbers; see to_english.
+                m.entry(norm(f)).or_insert(*en);
+            }
+        }
+        m
+    });
+    m.get(word).copied()
+}
+
 /// Case endings and particles that can follow a name or number stem
 /// (written in normalized spelling: chillu = consonant + virama).
 const ENDINGS: &[&str] = &[
@@ -159,7 +249,10 @@ fn book_table() -> &'static Vec<(String, &'static str)> {
     T.get_or_init(|| {
         let mut v: Vec<(String, &'static str)> = BOOKS
             .iter()
+            .chain(ENGLISH_BOOKS)
             .flat_map(|(en, forms)| forms.iter().map(move |f| (stem(f), *en)))
+            // Very short stems ("സാ" from "സാം") would match too much.
+            .filter(|(st, _)| st.chars().count() >= 3)
             .collect();
         // Longest stem first, so "ലേവ്യപുസ്തക" wins over "ലേവ്യ".
         v.sort_by(|a, b| b.0.chars().count().cmp(&a.0.chars().count()));
@@ -168,6 +261,12 @@ fn book_table() -> &'static Vec<(String, &'static str)> {
 }
 
 fn match_book(word: &str) -> Option<&'static str> {
+    // Short English names match only as written: "സാം" (Psalm).
+    for (en, forms) in ENGLISH_BOOKS {
+        if forms.iter().any(|f| norm(f) == word) {
+            return Some(en);
+        }
+    }
     book_table().iter().find_map(|(s, en)| {
         let rest = word.strip_prefix(s.as_str())?;
         ENDINGS.contains(&rest).then_some(*en)
@@ -367,6 +466,9 @@ fn classify(word: &str) -> Vec<(String, Tok)> {
         return vec![(w, t)];
     }
     if let Some(en) = match_book(&w) {
+        return vec![(w, Tok::Word(en.to_string()))];
+    }
+    if let Some(en) = english_word(&w) {
         return vec![(w, Tok::Word(en.to_string()))];
     }
     // A book name run into its number: "റോമരെട്ടാം" = റോമർ എട്ടാം.
@@ -647,6 +749,18 @@ pub fn to_english(text: &str) -> String {
     // Insert "and" between "എട്ടും ഒമ്പതും", then move each Malayalam
     // chapter/verse word in front of its number group.
     toks.retain(|t| !matches!(t, Tok::Word(w) if w.is_empty()));
+    // "ടു" is both "two" and "to": between two numbers it is "to"
+    // ("ഫോർ ടു സെവൻ" = 4 to 7).
+    for k in 1..toks.len().saturating_sub(1) {
+        let numberish = |t: &Tok| match t {
+            Tok::Num(_) => true,
+            Tok::Word(w) => crate::numbers::parse(&[w.clone()], 0).is_some(),
+            _ => false,
+        };
+        if toks[k] == Tok::Word("two".into()) && numberish(&toks[k - 1]) && numberish(&toks[k + 1]) {
+            toks[k] = Tok::Word("to".into());
+        }
+    }
     let mut out: Vec<Tok> = Vec::with_capacity(toks.len() + 4);
     for (k, t) in toks.iter().enumerate() {
         out.push(t.clone());
@@ -806,6 +920,12 @@ mod tests {
              "1 corinthians chapter 13"),
             ("സങ്കീർത്തനം ഇരുപത്തി മൂന്നാം അദ്ധ്യായം", "psalms chapter 23"),
             ("യോഹന്നാൻ 3:16", "john 3 : 16"),
+            // English said inside Malayalam speech, written in Malayalam letters.
+            ("ജോൺ ത്രീ സിക്സ്റ്റീൻ", "john three sixteen"),
+            ("നമുക്ക് റോമൻസ് ചാപ്റ്റർ എയ്റ്റ് വേഴ്സ് ട്വന്റി എയ്റ്റ് വായിക്കാം",
+             "x romans chapter eight verse twenty eight x"),
+            ("ഫസ്റ്റ് കൊരിന്ത്യൻസ് തേർട്ടീൻ", "first corinthians thirteen"),
+            ("സാം ട്വന്റി ത്രീ", "psalms twenty three"),
             // What IndicConformer actually wrote for the test sermon.
             ("യോഹൻാൻ മൂന്നാം അധ്യായം പതിനാറാം വാക്യം", "john chapter 3 verse 16"),
             ("റോമരെട്ടാം അത്യായം ഇരുപത്തെട്ടാം വാക്യം", "romans chapter 8 verse 28"),
