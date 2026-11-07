@@ -136,7 +136,8 @@ async fn main() {
             _ => continue,
         };
         println!("[{t:6.1}s] {} {text:?}", if is_final { "FINAL  " } else { "partial" });
-        let results = confirmer.filter(detector.detect_utterance(&text, is_final), is_final);
+        let detected = detector.detect_utterance(&text, is_final);
+        let results = confirmer.filter_settled(detected, is_final, detector.settled());
         for d in results {
             let r = show(&d);
             rhema_stt::whisper::set_context_hint(&r);

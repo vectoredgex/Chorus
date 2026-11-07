@@ -571,9 +571,10 @@ fn run_direct_detection(app: &AppHandle, transcript: &str, is_final: bool) -> bo
         }
     };
     let direct_results = detector.detect_utterance(transcript, is_final);
+    let settled = detector.settled().to_vec();
     drop(detector); // Release immediately
     let direct_results = match PARTIAL_CONFIRMER.lock() {
-        Ok(mut c) => c.filter(direct_results, is_final),
+        Ok(mut c) => c.filter_settled(direct_results, is_final, &settled),
         Err(_) => direct_results,
     };
 

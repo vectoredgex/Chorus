@@ -492,6 +492,9 @@ pub struct DirectDetector {
     chorus_prev_text: String,
     /// Set while partials of one utterance are arriving; cleared by its final.
     utterance_open: bool,
+    /// References from the last text that the speaker has already talked
+    /// past (see [`settled`](Self::settled)).
+    settled: Vec<(i32, i32, i32)>,
     /// Context as it stood before the current utterance started, so relative
     /// follow-ups ("the next verse") don't advance again on every partial.
     chorus_snapshot: Option<chorus_refparse::Reference>,
@@ -510,6 +513,7 @@ impl DirectDetector {
             chorus: chorus_refparse::Detector::new(),
             chorus_prev_text: String::new(),
             utterance_open: false,
+            settled: Vec::new(),
             chorus_snapshot: None,
             last_rejected_at: None,
         }
@@ -639,6 +643,7 @@ impl DirectDetector {
         self.chorus_prev_text = text.to_string();
 
         // "we sang verse two of the hymn" is about a song, not Scripture.
+        self.settled.clear();
         if chorus_refparse::is_song_verse(text) {
             return Vec::new();
         }
@@ -670,13 +675,43 @@ impl DirectDetector {
     }
 
     /// Verse-level references from the Chorus engine that really exist.
+    /// References in the last detected text that are followed by at least
+    /// two more words, as (book, chapter, verse). The speaker has moved on,
+    /// so a later partial is unlikely to change the numbers, and the partial
+    /// confirmer can show them without waiting for a second partial.
+    pub fn settled(&self) -> &[(i32, i32, i32)] {
+        &self.settled
+    }
+
     fn chorus_hits(&mut self, text: &str) -> Vec<(VerseRef, f64)> {
         use chorus_refparse::Confidence;
-        self.chorus
+        self.settled.clear();
+        let tokens = chorus_refparse::normalize(text);
+        let words_after = |matched: &str| -> usize {
+            let m: Vec<&str> = matched.split_whitespace().collect();
+            if m.is_empty() || m.len() > tokens.len() {
+                return 0;
+            }
+            (0..=tokens.len() - m.len())
+                .rev()
+                .find(|&p| tokens[p..p + m.len()].iter().zip(&m).all(|(a, b)| a == b))
+                .map_or(0, |p| {
+                    tokens[p + m.len()..]
+                        .iter()
+                        .filter(|w| w.chars().any(char::is_alphabetic))
+                        .count()
+                })
+        };
+        let mut settled = Vec::new();
+        let hits = self
+            .chorus
             .detect(text)
             .into_iter()
             .filter(|d| d.confidence >= Confidence::Medium)
             .filter_map(|d| {
+                let is_settled = d.confidence == Confidence::High
+                    && d.source != chorus_refparse::Source::Fuzzy
+                    && words_after(&d.matched) >= 2;
                 let r = d.reference;
                 let verse = i32::from(r.verse_start?);
                 let book_number = i32::from(r.book);
@@ -707,9 +742,14 @@ impl DirectDetector {
                 } else {
                     0.85
                 };
+                if is_settled {
+                    settled.push((vr.book_number, vr.chapter, vr.verse_start));
+                }
                 Some((vr, confidence))
             })
-            .collect()
+            .collect();
+        self.settled = settled;
+        hits
     }
 
     /// The original Rhema direct detector.
@@ -2124,6 +2164,17 @@ mod tests {
         assert_eq!(again, vec![8]);
         let again: Vec<_> = d.detect_utterance("Next verse.", true).iter().map(|r| r.verse_ref.verse_start).collect();
         assert_eq!(again, vec![9]);
+    }
+
+    #[test]
+    fn test_settled_only_when_speaker_moved_on() {
+        let mut d = DirectDetector::new();
+        d.detect_utterance("John chapter 3 verse 1", false);
+        assert!(d.settled().is_empty(), "number may still grow: 1 -> 16");
+        d.detect_utterance("John chapter 3 verse 16 for God so", false);
+        assert_eq!(d.settled(), &[(43, 3, 16)]);
+        d.detect_utterance("Joshua 1 9, be strong and", false);
+        assert_eq!(d.settled(), &[(6, 1, 9)]);
     }
 
     #[test]
