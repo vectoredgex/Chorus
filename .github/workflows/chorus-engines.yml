@@ -12,6 +12,8 @@ on:
       - "scripts/chorus/compare-engines.py"
       - "scripts/chorus/parakeet_lines.py"
       - "src-tauri/crates/replay/src/bin/**"
+      - "src-tauri/crates/chorus-refparse/**"
+      - "src-tauri/crates/detection/**"
       - "src-tauri/crates/stt/examples/whisper_lines.rs"
       - ".github/workflows/chorus-engines.yml"
   workflow_dispatch:

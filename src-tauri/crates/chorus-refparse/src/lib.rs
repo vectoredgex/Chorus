@@ -368,6 +368,17 @@ fn parse_tail(t: &[String], start: usize, book: &Book) -> Option<Tail> {
         return None;
     }
     k += c.len;
+    // Parakeet writes a spoken "Jeremiah twenty-nine eleven" as
+    // "Jeremiah 29-11" and "Joshua one nine" as "Joshua 1-9" (measured on
+    // the test sermon). Right after a book and chapter, with no "chapters"
+    // word, a dash is the chapter-verse break, not a chapter range: spoken
+    // chapter ranges are rare and come with "to" ("Psalms 1 to 3").
+    if !chapter_word && tok(t, k) == "-" && tok(t, k + 2) != ":" {
+        if let Some(v) = parse_verse(t, k + 1, true) {
+            let next = v.next;
+            return Some(Tail { chapter: c.value as u16, verse: Some(v), chapter_word, next });
+        }
+    }
     let verse = parse_verse(t, k, true);
     let next = verse.as_ref().map(|v| v.next).unwrap_or(k);
     Some(Tail { chapter: c.value as u16, verse, chapter_word, next })
@@ -512,13 +523,28 @@ impl Detector {
         let t = normalize(text);
         let mut out = Vec::new();
         let mut i = 0;
+        // A book named in this utterance without a usable chapter
+        // ("1 Corinthians 30", misheard thirteen). A follow-up such as
+        // "verses 4 to 7" after it belongs to that book, so it must not be
+        // resolved against an older, different book (measured: it showed
+        // Romans 8:4-7).
+        let mut unresolved_book: Option<u8> = None;
         while i < t.len() {
             let found = self
                 .try_of_form(&t, i)
                 .or_else(|| self.try_ordinal_psalm(&t, i))
                 .or_else(|| self.try_book(&t, i))
                 .or_else(|| self.try_fuzzy(&t, i))
-                .or_else(|| self.try_context(&t, i));
+                .or_else(|| {
+                    if let Some(hit) = match_book(&t, i) {
+                        if !hit.weak {
+                            unresolved_book = Some(hit.id);
+                        }
+                    }
+                    let other_book = unresolved_book
+                        .is_some_and(|b| self.last.is_none_or(|l| l.book != b));
+                    if other_book { None } else { self.try_context(&t, i) }
+                });
             match found {
                 Some((d, end)) => {
                     if d.confidence >= Confidence::Medium {
