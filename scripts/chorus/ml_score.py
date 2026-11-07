@@ -130,6 +130,7 @@ def score(path):
 
 def main():
     rows = []
+    totals = []
     print("\n==== MALAYALAM ENGINE COMPARISON ====")
     total_refs = sum(len(r) for _, r, _ in SERMON)
     print(f"{'engine / voice / sound':40} {'verses':>7} {'wrong':>6} {'key words':>10} {'close':>8} {'CER':>6} {'s/line':>7}")
@@ -138,7 +139,16 @@ def main():
         total, exact, close, cer, avg, lines, verses = score(path)
         rows.append((label, lines))
         v = f"{verses[0]:>3}/{total_refs:<3} {verses[1]:>6}" if verses else f"{'-':>7} {'-':>6}"
+        if verses:
+            totals.append((label.split("_")[0], verses[0], verses[1], avg))
         print(f"{label:40} {v} {exact:>4}/{total:<5} {close:>3}/{total:<4} {cer:>6.1%} {avg:>7.2f}")
+    print("\n==== TOTAL PER ENGINE (all voices and sound conditions) ====")
+    for engine in sorted({r[0] for r in totals}):
+        rows_e = [r for r in totals if r[0] == engine]
+        right = sum(r[1] for r in rows_e)
+        wrong = sum(r[2] for r in rows_e)
+        n = len(rows_e) * total_refs
+        print(f"{engine:20} verses {right}/{n} ({right / max(n, 1):.0%}), wrong {wrong}, avg {sum(r[3] for r in rows_e) / max(len(rows_e), 1):.2f} s/line")
     print("\n==== WHAT EACH ENGINE HEARD (reference lines; n/m = key words exact) ====")
     for label, lines in rows:
         print(f"\n-- {label}")

@@ -3,12 +3,16 @@
 Each line is spoken by a text-to-speech voice and saved as its own clip:
   <out>/lineNN.wav        16 kHz mono, as spoken
   <out>/lineNN_noisy.wav  same, with room echo and background hiss
+  <out>/lineNN_hall.wav   big echoey hall, louder noise, cheap microphone
+  <out>/lineNN_fast.wav   spoken 15% faster
 
 Voices:
   natural  Meta MMS Malayalam voice (facebook/mms-tts-mal, via transformers)
   robot    espeak-ng Malayalam
+  anjali   AI4Bharat Indic Parler-TTS, female Malayalam speaker
+  harish   AI4Bharat Indic Parler-TTS, male Malayalam speaker
 
-Usage: python3 ml_sermon.py <out_dir> natural|robot
+Usage: python3 ml_sermon.py <out_dir> natural|robot|anjali|harish
 """
 
 import os
@@ -57,6 +61,40 @@ SERMON = [
     ("ഒടുവിൽ, വെളിപ്പാട് ഇരുപത്തൊന്നാം അദ്ധ്യായം നാലാം വാക്യം.",
      ["Revelation 21:4"], ["വെളിപ്പാട്", "ഇരുപത്തൊന്നാം", "നാലാം"]),
     ("നമുക്ക് പ്രാർത്ഥിക്കാം.", [], []),
+    # --- Part two: harder phrasing, everyday numbers and names, follow-ups ---
+    ("യോഹന്നാൻ സ്നാപകൻ മരുഭൂമിയിൽ പ്രസംഗിച്ചു.", [], []),
+    ("സങ്കീർത്തനം നൂറ്റിപ്പത്തൊമ്പതാം അദ്ധ്യായം നൂറ്റിയഞ്ചാം വാക്യം.",
+     ["Psalms 119:105"], ["സങ്കീർത്തനം", "നൂറ്റിപ്പത്തൊമ്പതാം", "നൂറ്റിയഞ്ചാം"]),
+    ("നിന്റെ വചനം എന്റെ കാലിന്നു ദീപവും എന്റെ പാതെക്കു പ്രകാശവും ആകുന്നു.", [], []),
+    ("മൂന്നു ദിവസം കഴിഞ്ഞ് അവൻ ഉയിർത്തെഴുന്നേറ്റു.", [], []),
+    ("അപ്പൊസ്തലപ്രവൃത്തികൾ രണ്ടാം അദ്ധ്യായം മുപ്പത്തെട്ടാം വാക്യം നോക്കാം.",
+     ["Acts 2:38"], ["അപ്പൊസ്തലപ്രവൃത്തികൾ", "രണ്ടാം", "മുപ്പത്തെട്ടാം"]),
+    ("അടുത്ത വാക്യം കൂടെ വായിക്കാം.", ["Acts 2:39"], []),
+    ("പത്രൊസ് മൂന്നു പ്രാവശ്യം യേശുവിനെ തള്ളിപ്പറഞ്ഞു.", [], []),
+    ("ഗലാത്യർ അഞ്ചാം അദ്ധ്യായം ഇരുപത്തിരണ്ടും ഇരുപത്തിമൂന്നും വാക്യങ്ങൾ.",
+     ["Galatians 5:22-23"], ["ഗലാത്യർ", "അഞ്ചാം", "ഇരുപത്തിരണ്ടും", "ഇരുപത്തിമൂന്നും"]),
+    ("രണ്ടാം ദിനവൃത്താന്തം ഏഴാം അദ്ധ്യായം പതിനാലാം വാക്യം.",
+     ["2 Chronicles 7:14"], ["രണ്ടാം", "ദിനവൃത്താന്തം", "ഏഴാം", "പതിനാലാം"]),
+    ("റോമർ പന്ത്രണ്ടിൽ ഒന്നും രണ്ടും വാക്യങ്ങൾ.",
+     ["Romans 12:1-2"], ["റോമർ", "പന്ത്രണ്ടിൽ", "ഒന്നും", "രണ്ടും"]),
+    ("മത്തായിയുടെ സുവിശേഷം അഞ്ചാം അദ്ധ്യായം മൂന്നാം വാക്യം.",
+     ["Matthew 5:3"], ["മത്തായിയുടെ", "അഞ്ചാം", "മൂന്നാം"]),
+    ("അതേ അദ്ധ്യായം പതിനാലാം വാക്യം.", ["Matthew 5:14"], ["പതിനാലാം"]),
+    ("ഒന്നാം പത്രൊസ് അഞ്ചാം അദ്ധ്യായം ഏഴാം വാക്യം.",
+     ["1 Peter 5:7"], ["ഒന്നാം", "പത്രൊസ്", "അഞ്ചാം", "ഏഴാം"]),
+    ("വിലാപങ്ങൾ മൂന്നാം അദ്ധ്യായം ഇരുപത്തിരണ്ടാം വാക്യം.",
+     ["Lamentations 3:22"], ["വിലാപങ്ങൾ", "മൂന്നാം", "ഇരുപത്തിരണ്ടാം"]),
+    ("കൊലൊസ്സ്യർ മൂന്നാം അദ്ധ്യായം ഇരുപത്തിമൂന്നാം വാക്യം.",
+     ["Colossians 3:23"], ["കൊലൊസ്സ്യർ", "മൂന്നാം", "ഇരുപത്തിമൂന്നാം"]),
+    ("യെശയ്യാവ് അമ്പത്തിമൂന്നാം അദ്ധ്യായം അഞ്ചാം വാക്യം.",
+     ["Isaiah 53:5"], ["യെശയ്യാവ്", "അമ്പത്തിമൂന്നാം", "അഞ്ചാം"]),
+    ("ഇന്ന് പന്ത്രണ്ട് പേർ സ്നാനമേറ്റു, ദൈവത്തിന് സ്തോത്രം.", [], []),
+    ("ഒന്നാം ശമൂവേൽ പതിനേഴാം അദ്ധ്യായം നാല്പത്തഞ്ചാം വാക്യം.",
+     ["1 Samuel 17:45"], ["ഒന്നാം", "ശമൂവേൽ", "പതിനേഴാം", "നാല്പത്തഞ്ചാം"]),
+    ("എബ്രായർ പതിമൂന്നാം അദ്ധ്യായം എട്ടാം വാക്യം, യേശുക്രിസ്തു ഇന്നലെയും ഇന്നും എന്നേക്കും അനന്യൻ തന്നേ.",
+     ["Hebrews 13:8"], ["എബ്രായർ", "പതിമൂന്നാം", "എട്ടാം"]),
+    ("മീഖാ ആറാം അദ്ധ്യായം എട്ടാം വാക്യം.", ["Micah 6:8"], ["മീഖാ", "ആറാം", "എട്ടാം"]),
+    ("ആമേൻ.", [], []),
 ]
 
 
@@ -99,6 +137,54 @@ class MmsVoice:
         os.remove(raw)
 
 
+def hall(src, dst):
+    run("ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", src,
+        "-f", "lavfi", "-i", "anoisesrc=color=brown:amplitude=0.06:sample_rate=16000:seed=5",
+        "-filter_complex",
+        "[0:a]aecho=0.8:0.7:90|180:0.45|0.3,highpass=f=250,lowpass=f=3400[v];"
+        "[v][1:a]amix=inputs=2:duration=first:weights=1 0.9",
+        "-ar", "16000", "-ac", "1", "-sample_fmt", "s16", dst)
+
+
+def faster(src, dst):
+    run("ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", src,
+        "-filter:a", "atempo=1.15", "-ar", "16000", "-ac", "1", "-sample_fmt", "s16", dst)
+
+
+class ParlerVoice:
+    SPEAKERS = {
+        "anjali": "Anjali speaks at a moderate pace with a clear, expressive voice in a close-sounding "
+                  "environment. The recording is of very high quality with no background noise.",
+        "harish": "Harish speaks at a moderate pace with a deep, confident voice like a preacher in a "
+                  "close-sounding environment. The recording is of very high quality with no background noise.",
+    }
+
+    def __init__(self, speaker):
+        import torch
+        from parler_tts import ParlerTTSForConditionalGeneration
+        from transformers import AutoTokenizer
+        self.torch = torch
+        torch.manual_seed(7)
+        self.model = ParlerTTSForConditionalGeneration.from_pretrained("ai4bharat/indic-parler-tts")
+        self.tok = AutoTokenizer.from_pretrained("ai4bharat/indic-parler-tts")
+        self.desc_tok = AutoTokenizer.from_pretrained(self.model.config.text_encoder._name_or_path)
+        self.desc = self.desc_tok(self.SPEAKERS[speaker], return_tensors="pt")
+
+    def say(self, text, path):
+        import numpy as np
+        import soundfile as sf
+        prompt = self.tok(text, return_tensors="pt")
+        with self.torch.no_grad():
+            gen = self.model.generate(
+                input_ids=self.desc.input_ids, attention_mask=self.desc.attention_mask,
+                prompt_input_ids=prompt.input_ids, prompt_attention_mask=prompt.attention_mask)
+        raw = path + ".raw.wav"
+        sf.write(raw, np.asarray(gen.cpu().numpy().squeeze(), dtype="float32"),
+                 self.model.config.sampling_rate)
+        to16k(raw, path)
+        os.remove(raw)
+
+
 def espeak_say(text, path):
     raw = path + ".raw.wav"
     run("espeak-ng", "-v", "ml", "-s", "140", "-w", raw, text)
@@ -109,11 +195,19 @@ def espeak_say(text, path):
 def main():
     out, voice = sys.argv[1], sys.argv[2]
     os.makedirs(out, exist_ok=True)
-    say = MmsVoice().say if voice == "natural" else espeak_say
+    if voice == "natural":
+        say = MmsVoice().say
+    elif voice == "robot":
+        say = espeak_say
+    else:
+        say = ParlerVoice(voice).say
     for n, (line, _, _) in enumerate(SERMON):
         wav = os.path.join(out, f"line{n:02d}.wav")
         say(line, wav)
         add_noise(wav, os.path.join(out, f"line{n:02d}_noisy.wav"))
+        hall(wav, os.path.join(out, f"line{n:02d}_hall.wav"))
+        faster(wav, os.path.join(out, f"line{n:02d}_fast.wav"))
+        print(f"  line {n} done", flush=True)
     print(f"voice: {voice}, {len(SERMON)} lines")
 
 

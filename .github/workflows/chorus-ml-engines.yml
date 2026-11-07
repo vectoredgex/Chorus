@@ -5,7 +5,8 @@ name: Chorus Malayalam engines
 #   IndicConformer 600M (AI4Bharat, sherpa-onnx int8) - the front-runner
 #   a second IndicConformer export, Malayalam-tuned Whisper medium, and
 #   Whisper large-v3-turbo (what Chorus ships for English today).
-# Two voices (natural MMS voice, robotic espeak), each clear and noisy.
+# Four voices (MMS, espeak, two AI4Bharat Parler voices), each clear,
+# noisy, in an echoey hall, and spoken fast.
 # CPU only. Models come from Hugging Face, which only CI can reach.
 
 on:
@@ -29,11 +30,11 @@ jobs:
   audio:
     name: Speak sermon (${{ matrix.voice }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        voice: [natural, robot]
+        voice: [natural, anjali, harish]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -44,10 +45,12 @@ jobs:
           sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg
           pip install --quiet soundfile numpy
-          if [ "${{ matrix.voice }}" = natural ]; then
-            pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
-            pip install --quiet transformers
-          fi
+          case "${{ matrix.voice }}" in
+            natural) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+                     pip install --quiet transformers ;;
+            anjali|harish) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+                     pip install --quiet git+https://github.com/huggingface/parler-tts.git ;;
+          esac
       - name: Speak
         run: python3 scripts/chorus/ml_sermon.py clips ${{ matrix.voice }}
       - uses: actions/upload-artifact@v4
@@ -58,6 +61,7 @@ jobs:
   transcribe:
     name: ${{ matrix.engine }} (${{ matrix.voice }})
     needs: audio
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -66,8 +70,8 @@ jobs:
         # Whisper (medium-ml, large-v3-turbo) was dropped after taking over
         # 20 minutes for 42 short clips on CI CPUs; IndicConformer took 0.4 s
         # per line. Run them again with workflow_dispatch if ever needed.
-        engine: [indicconformer, omnilingual-300m, omnilingual-1b]
-        voice: [natural, robot]
+        engine: [indicconformer]
+        voice: [natural, anjali, harish]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -101,7 +105,9 @@ jobs:
           mkdir -p out
           E=${{ matrix.engine }}; V=${{ matrix.voice }}; T=$(nproc)
           python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??.wav) > out/${E}_${V}_clear.tsv
-          python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??_noisy.wav) > out/${E}_${V}_noisy.tsv
+          for c in noisy hall fast; do
+            python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??_$c.wav) > out/${E}_${V}_$c.tsv
+          done
           cat out/*.tsv
       - uses: actions/upload-artifact@v4
         with:
