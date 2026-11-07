@@ -524,7 +524,13 @@ impl Detector {
         // Malayalam is rewritten into the English word order first:
         // "യോഹന്നാൻ മൂന്നാം അദ്ധ്യായം" -> "john chapter 3".
         let t = if malayalam::has_malayalam(text) {
-            normalize(&malayalam::to_english(text))
+            let (english, lost_reference) = malayalam::rewrite(text);
+            if lost_reference {
+                // A book we could not make out: what follows is about it,
+                // not about the reference before.
+                self.last = None;
+            }
+            normalize(&english)
         } else {
             normalize(text)
         };

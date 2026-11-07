@@ -445,6 +445,7 @@ fn match_word(word: &str) -> Option<Tok> {
         "മുതല്" | "തൊട്ട്" => "to",
         "വരെ" | "വരെയുള്ള" | "വരെയും" | "എഴുതിയ" | "എഴുതിയിരിക്കുന്ന" | "എഴുതപ്പെട്ട" => "",
         "അടുത്ത" => "next",
+        "അതേ" | "അതെ" | "ഇതേ" | "ഇതെ" => "same",
         "സുവിശേഷം" | "സുവിശേഷത്തില്" | "സുവിശേഷത്തിലെ" => "gospel",
         "ലേഖനം" | "ലേഖനത്തില്" | "ലേഖനത്തിലെ" => "letter",
         "പുസ്തകം" | "പുസ്തകത്തില്" | "പുസ്തകത്തിലെ" => "book",
@@ -471,20 +472,91 @@ fn classify(word: &str) -> Vec<(String, Tok)> {
     if let Some(en) = english_word(&w) {
         return vec![(w, Tok::Word(en.to_string()))];
     }
-    // A book name run into its number: "റോമരെട്ടാം" = റോമർ എട്ടാം.
-    for (stem, en) in book_table() {
-        let Some(rest) = w.strip_prefix(stem.as_str()) else { continue };
-        let mut chars = rest.chars();
-        let Some(first) = chars.next() else { continue };
-        let rest = match independent_vowel(first) {
-            Some(v) => format!("{v}{}", chars.as_str()),
-            None => rest.to_string(),
-        };
-        if let Some(n) = match_number(&rest) {
-            return vec![(stem.clone(), Tok::Word(en.to_string())), (rest, Tok::Num(n))];
-        }
+    // A book name or chapter word run into its number: "റോമരെട്ടാം" =
+    // റോമർ എട്ടാം, "അദ്ധ്യായമെട്ടാം" = അദ്ധ്യായം എട്ടാം.
+    if let Some(parts) = split_merged(&w, false) {
+        return parts;
     }
     vec![(w, Tok::Other)]
+}
+
+/// The ways a number can be written when it is run into the word before
+/// it: its first vowel turned into a sign ("റോമരെട്ടാം"), swallowed by the
+/// vowel before it ("യശ്യാമ്പത്തി" = യെശയ്യാ അമ്പത്തി), or after a glide
+/// ("അദ്ധ്യായമെട്ടാം", "അധ്യായവട്ടാം").
+fn number_spellings(rest: &str) -> Vec<String> {
+    let mut chars = rest.chars();
+    let Some(first) = chars.next() else { return vec![] };
+    let after = chars.as_str();
+    let mut v = vec![rest.to_string()];
+    if let Some(iv) = independent_vowel(first) {
+        v.push(format!("{iv}{after}"));
+        return v;
+    }
+    if !is_ml(first) || ('അ'..='ഔ').contains(&first) {
+        return v;
+    }
+    v.push(format!("അ{rest}"));
+    if matches!(first, 'വ' | 'യ' | 'മ') {
+        let mut c2 = after.chars();
+        match c2.next().and_then(independent_vowel) {
+            Some(iv) => v.push(format!("{iv}{}", c2.as_str())),
+            None if !after.starts_with(VIRAMA) => {
+                for iv in ['എ', 'ഇ', 'ഒ', 'ആ', 'ഏ'] {
+                    v.push(format!("{iv}{after}"));
+                }
+            }
+            None => {}
+        }
+    }
+    v
+}
+
+/// A number, or a tens word that joins the next number ("അമ്പത്തി").
+fn number_part(rest: &str) -> Option<(String, Tok)> {
+    for s in number_spellings(rest) {
+        if let Some(n) = match_number(&s) {
+            return Some((s, Tok::Num(n)));
+        }
+        if compound_prefix(&s, &Tok::Other).is_some() {
+            return Some((s, Tok::Other));
+        }
+    }
+    None
+}
+
+/// Split a word that is a book name (or chapter/verse word) run into the
+/// number after it. With `fuzzy`, the name may be misheard.
+fn split_merged(w: &str, fuzzy: bool) -> Option<Vec<(String, Tok)>> {
+    let chars: Vec<char> = w.chars().collect();
+    // Longest name first.
+    for k in (2..chars.len()).rev() {
+        let head: String = chars[..k].iter().collect();
+        let rest: String = chars[k..].iter().collect();
+        // Never cut between a letter and its vowel sign or virama.
+        if matches!(chars[k], '\u{0D3E}'..='\u{0D4D}' | 'ം' | 'ഃ')
+            && !matches!(chars[k], '\u{0D3E}' | '\u{0D3F}' | '\u{0D40}' | '\u{0D41}' | '\u{0D46}' | '\u{0D47}' | '\u{0D4A}' | '\u{0D4B}')
+        {
+            continue;
+        }
+        let Some(num) = number_part(&rest) else { continue };
+        let name = [head.clone(), format!("{head}{VIRAMA}"), format!("{head}ം")]
+            .into_iter()
+            .find_map(|h| {
+                if let Some(t @ Tok::Marker(_)) = match_word(&h) {
+                    return Some(t);
+                }
+                if let Some(en) = match_book(&h) {
+                    return Some(Tok::Word(en.to_string()));
+                }
+                None
+            })
+            .or_else(|| fuzzy.then(|| fuzzy_book(&head)).flatten().map(|en| Tok::Word(en.to_string())));
+        if let Some(t) = name {
+            return Some(vec![(head, t), num]);
+        }
+    }
+    None
 }
 
 fn independent_vowel(sign: char) -> Option<char> {
@@ -546,8 +618,19 @@ fn char_distance(a: &[char], b: &[char]) -> usize {
 /// The book a misheard word most likely is, when one book is clearly
 /// closest by sound. Only called where a chapter/verse pattern follows.
 fn fuzzy_book(word: &str) -> Option<&'static str> {
+    fuzzy_book_in(word, false)
+}
+
+/// With `numbered`, the word follows "ഒന്നാം/രണ്ടാം/മൂന്നാം", so only the
+/// numbered books (1 John, 2 Timothy...) are candidates, and a short name
+/// may be one sound off: "ഒന്നാം രോഹനാൻ" = 1 John.
+fn fuzzy_book_in(word: &str, numbered: bool) -> Option<&'static str> {
     // The word as heard, and without any case ending it may carry.
     let w = norm(word);
+    // A number word ("ഇരുപത്തി") is never a book.
+    if match_number(&w).is_some() || compound_prefix(&w, &Tok::Other).is_some() {
+        return None;
+    }
     let mut heard: Vec<Vec<char>> = ENDINGS
         .iter()
         .filter(|e| !e.is_empty())
@@ -563,6 +646,7 @@ fn fuzzy_book(word: &str) -> Option<&'static str> {
     // Closest by sound; ties broken by spelling.
     let mut scored: Vec<((usize, usize), &'static str)> = BOOKS
         .iter()
+        .filter(|(en, _)| !numbered || is_family(en))
         .map(|(en, forms)| {
             let d = forms
                 .iter()
@@ -580,13 +664,29 @@ fn fuzzy_book(word: &str) -> Option<&'static str> {
         .collect();
     scored.sort();
     let ((d, _), en) = scored[0];
-    let allowed = if sk.len() >= 6 { 2 } else { 1 };
-    (d <= allowed && scored[1].0 > scored[0].0).then_some(en)
+    let allowed = match sk.len() {
+        0..=3 => 0,
+        4..=5 => 1,
+        _ => 2,
+    } + usize::from(numbered);
+    if d <= allowed && scored[1].0 > scored[0].0 {
+        return Some(en);
+    }
+    // The start of one book's name and of no other: "കൊലോസ്", "പത്രോ".
+    if sk.len() >= 3 {
+        let mut hits = BOOKS.iter().filter(|(_, forms)| {
+            forms.iter().any(|f| skeleton(&stem(f)).starts_with(&sk))
+        });
+        if let (Some((en, _)), None) = (hits.next(), hits.next()) {
+            return Some(en);
+        }
+    }
+    None
 }
 
 /// A misheard chapter or verse word ("അത്യായം", "ബാക്കിയം"), judged by
 /// sound. Only called right after a number.
-fn fuzzy_marker(word: &str) -> Option<Tok> {
+fn fuzzy_marker(word: &str, verse_only: bool) -> Option<Tok> {
     let w = norm(word);
     let mut heard: Vec<Vec<char>> = ENDINGS
         .iter()
@@ -599,7 +699,11 @@ fn fuzzy_marker(word: &str) -> Option<Tok> {
         let t = skeleton(target);
         heard.iter().any(|h| h.len() >= 2 && char_distance(h, &t) <= 1)
     };
-    if near("അദ്ധ്യായ") {
+    // "അഞ്ചയായ": a chapter word keeps its start and its end.
+    let chapterish = heard.iter().any(|h| {
+        h.len() >= 3 && h[0] == 'അ' && h.last() == Some(&'യ') && char_distance(h, &skeleton("അദ്ധ്യായ")) <= 2
+    });
+    if !verse_only && (near("അദ്ധ്യായ") || chapterish) {
         return Some(Tok::Marker("chapter"));
     }
     if near("വാക്യ") {
@@ -644,33 +748,92 @@ fn split(text: &str) -> Vec<String> {
 /// Rewrite a Malayalam (or mixed) transcript in the English word order the
 /// reference grammar reads.
 pub fn to_english(text: &str) -> String {
-    let (words, mut toks): (Vec<String>, Vec<Tok>) =
+    rewrite(text).0
+}
+
+/// [`to_english`], and whether a reference to a book we could not make out
+/// was dropped. Follow-ups after it ("അതേ അദ്ധ്യായം", "അടുത്ത വാക്യം")
+/// must not attach to an older reference.
+pub fn rewrite(text: &str) -> (String, bool) {
+    let mut lost_reference = false;
+    let (mut words, mut toks): (Vec<String>, Vec<Tok>) =
         split(text).iter().flat_map(|w| classify(w)).unzip();
 
-    // A word nobody knows, right before "<number> അദ്ധ്യായം/വാക്യം", is
-    // probably a misheard book name: "കുരിന്ന്ത്യ പതിമൂന്നാം അധ്യായം".
-    // First, misheard chapter/verse words right after a number.
+    // "അതേ അദ്ധ്യായം" (the same chapter): the verse that follows uses the
+    // chapter already on screen.
+    for i in 0..toks.len() {
+        if toks[i] == Tok::Word("same".into()) {
+            toks[i] = Tok::Word(String::new());
+            if toks.get(i + 1) == Some(&Tok::Marker("chapter")) {
+                toks[i + 1] = Tok::Word(String::new());
+            }
+        }
+    }
+
+    // Misheard chapter/verse words right after a number or "next".
     for i in 1..toks.len() {
-        if toks[i] == Tok::Other && matches!(toks[i - 1], Tok::Num(_)) {
-            if let Some(m) = fuzzy_marker(&words[i]) {
+        let after = matches!(&toks[i - 1], Tok::Num(_)) || toks[i - 1] == Tok::Word("next".into());
+        if toks[i] == Tok::Other && after {
+            // After "<n> അദ്ധ്യായം <m>" only a verse word can come.
+            let verse_only = toks[i.saturating_sub(3)..i].contains(&Tok::Marker("chapter"));
+            if let Some(m) = fuzzy_marker(&words[i], verse_only) {
                 toks[i] = m;
             }
         }
     }
-    let mut words = words;
+
+    // A chapter word within the next few words: the place for a book name.
+    let chapter_soon = |toks: &[Tok], from: usize| {
+        toks.iter().skip(from).take(4).any(|t| *t == Tok::Marker("chapter"))
+    };
+    // A misheard book name run into its number ("യശ്യാമ്പത്തി"), or split
+    // across two words ("പത്രോ സഞ്ചാം" = പത്രോസ് അഞ്ചാം).
+    let mut i = 0;
+    while i < toks.len() {
+        if toks[i] == Tok::Other && chapter_soon(&toks, i + 1) {
+            let mut parts = split_merged(&words[i], true).map(|p| (p, 1));
+            if parts.is_none() && toks.get(i + 1) == Some(&Tok::Other) {
+                let joined = format!("{}{}", words[i], words[i + 1]);
+                parts = split_merged(&joined, true).map(|p| (p, 2));
+            }
+            if let Some((p, used)) = parts {
+                let (w, t): (Vec<String>, Vec<Tok>) = p.into_iter().unzip();
+                let n = w.len();
+                words.splice(i..i + used, w);
+                toks.splice(i..i + used, t);
+                i += n;
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    // A word nobody knows, right before "<number> അദ്ധ്യായം/വാക്യം", is
+    // probably a misheard book name: "കുരിന്ന്ത്യ പതിമൂന്നാം അധ്യായം".
+    // "Gospel"/"letter"/"book" may come between: "മതായിയുടെ സുവിശേഷം".
+    let skip_book_words = |toks: &[Tok], mut j: usize| {
+        while matches!(toks.get(j), Some(Tok::Word(w)) if w.is_empty() || w == "gospel" || w == "letter" || w == "book") {
+            j += 1;
+        }
+        j
+    };
     for i in 0..toks.len() {
         if toks[i] != Tok::Other {
             continue;
         }
         let pattern = |j: usize| {
+            let j = skip_book_words(&toks, j);
             matches!(toks.get(j), Some(Tok::Num(_))) && matches!(toks.get(j + 1), Some(Tok::Marker(_)))
         };
         if pattern(i + 1) {
-            if let Some(en) = fuzzy_book(&words[i]) {
+            let numbered = i > 0 && matches!(toks[i - 1], Tok::Num(n) if n.ordinal && (1..=3).contains(&n.value));
+            let guess = fuzzy_book(&words[i]).or_else(|| numbered.then(|| fuzzy_book_in(&words[i], true)).flatten());
+            if let Some(en) = guess {
                 toks[i] = Tok::Word(en.to_string());
             }
-        } else if matches!(toks.get(i + 1), Some(Tok::Marker(_))) && pattern(i + 2) {
-            // A name split in two: "സദരിച്ച വാക്യങ്ങൾ" for സദൃശവാക്യങ്ങൾ.
+        } else if matches!(toks.get(i + 1), Some(Tok::Marker(_)) | Some(Tok::Other)) && pattern(i + 2) {
+            // A name split in two: "സദരിച്ച വാക്യങ്ങൾ" for സദൃശവാക്യങ്ങൾ,
+            // "അപസ്ഥതല പ്രവർത്തികൾ".
             let joined = format!("{}{}", words[i], words[i + 1]);
             if let Some(en) = fuzzy_book(&joined) {
                 toks[i] = Tok::Word(en.to_string());
@@ -680,21 +843,26 @@ pub fn to_english(text: &str) -> String {
         }
     }
 
-    // An unknown word right before "<number> അദ്ധ്യായം" is a book name we
-    // could not make out. The numbers after it belong to that book, so they
-    // must not complete the previous reference ("Jeremiah 2:8-9" for a
-    // misheard Ephesians 2:8-9). Drop them.
+    // A chapter number must follow a book name. When the word before it is
+    // one we could not make out, the numbers belong to that unknown book
+    // and must not complete the previous reference ("2 Chronicles 5:3" for
+    // a misheard Matthew 5:3). Drop them. The same when the chapter word
+    // is garbled too: "X 1 Y 9 വാക്യം".
     for i in 0..toks.len() {
-        // "X 2 അധ്യായം ..." or, with the chapter word garbled too,
-        // "X 1 Y 9 വാക്യം".
-        let unknown_book = toks[i] == Tok::Other
-            && matches!(toks.get(i + 1), Some(Tok::Num(_)))
-            && (matches!(toks.get(i + 2), Some(Tok::Marker("chapter")))
-                || (matches!(toks.get(i + 2), Some(Tok::Other))
-                    && matches!(toks.get(i + 3), Some(Tok::Num(_)))
-                    && matches!(toks.get(i + 4), Some(Tok::Marker(m)) if m.starts_with("verse"))));
+        if toks[i] != Tok::Other || compound_prefix(&words[i], &Tok::Other).is_some() {
+            continue;
+        }
+        let j0 = skip_book_words(&toks, i + 1);
+        // "X 12 1 and 2 verses": a chapter without its word, then verses.
+        let unknown_book = matches!(toks.get(j0), Some(Tok::Num(_)))
+            && (matches!(toks.get(j0 + 1), Some(Tok::Marker("chapter")))
+                || matches!(toks.get(j0 + 1), Some(Tok::Num(_)))
+                || (matches!(toks.get(j0 + 1), Some(Tok::Other))
+                    && matches!(toks.get(j0 + 2), Some(Tok::Num(_)))
+                    && matches!(toks.get(j0 + 3), Some(Tok::Marker(m)) if m.starts_with("verse"))));
         if unknown_book {
-            let mut j = i + 1;
+            lost_reference = true;
+            let mut j = j0;
             while j < toks.len()
                 && (matches!(toks[j], Tok::Num(_) | Tok::Marker(_) | Tok::Other)
                     || matches!(&toks[j], Tok::Word(w) if w == "to" || w == "and" || w.is_empty()))
@@ -781,6 +949,28 @@ pub fn to_english(text: &str) -> String {
         }
         k += 1;
     }
+    // "<n> അദ്ധ്യായം <m>" with the verse word lost or garbled ("ആക്യം",
+    // "മാക്കയം"): the number after a chapter is its verse.
+    let mut k = 1;
+    while k < out.len() {
+        if out[k] == Tok::Marker("chapter") && matches!(out[k - 1], Tok::Num(_)) {
+            let is_num = |i: usize| matches!(out.get(i), Some(Tok::Num(_)));
+            let is_join = |i: usize| matches!(out.get(i), Some(Tok::Word(w)) if w == "to" || w == "and");
+            let mut e = k + 1;
+            if is_num(e) {
+                let mut joined = false;
+                e += 1;
+                while is_join(e) && is_num(e + 1) {
+                    e += 2;
+                    joined = true;
+                }
+                if !matches!(out.get(e), Some(Tok::Marker(_))) {
+                    out.insert(e, Tok::Marker(if joined { "verses" } else { "verse" }));
+                }
+            }
+        }
+        k += 1;
+    }
     let mut k = 0;
     while k < out.len() {
         if let Tok::Marker(m) = out[k] {
@@ -807,7 +997,7 @@ pub fn to_english(text: &str) -> String {
         }
         s.push_str(&w);
     }
-    s
+    (s, lost_reference)
 }
 
 fn is_family(w: &str) -> bool {

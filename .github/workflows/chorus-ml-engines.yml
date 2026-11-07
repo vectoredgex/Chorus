@@ -48,8 +48,11 @@ jobs:
           case "${{ matrix.voice }}" in
             natural) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
                      pip install --quiet transformers ;;
-            anjali|harish) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
-                     pip install --quiet git+https://github.com/huggingface/parler-tts.git ;;
+            anjali|harish)
+                     # torchaudio must be the CPU build too, or it looks for CUDA.
+                     pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+                     pip install --quiet git+https://github.com/huggingface/parler-tts.git
+                     python3 -c "import torch, torchaudio; print(torch.__version__, torchaudio.__version__)" ;;
           esac
       - name: Speak
         run: python3 scripts/chorus/ml_sermon.py clips ${{ matrix.voice }}
