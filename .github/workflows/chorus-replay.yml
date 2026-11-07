@@ -94,6 +94,12 @@ jobs:
         working-directory: src-tauri
         run: cargo build -p chorus-replay
 
+      - name: Find sherpa-onnx shared libraries
+        run: |
+          d=$(dirname "$(find src-tauri/target -name 'libsherpa-onnx-c-api.so' | head -1)")
+          echo "sherpa-onnx libs: $d"; ls "$d"
+          echo "LD_LIBRARY_PATH=$PWD/$d" >> "$GITHUB_ENV"
+
       - name: Replay (clear speech)
         working-directory: src-tauri
         run: |

@@ -100,6 +100,12 @@ jobs:
           cargo build --release -p rhema-stt --features parakeet --example parakeet_lines
           cargo build --release -p chorus-replay --bin detect-lines
 
+      - name: Find sherpa-onnx shared libraries
+        run: |
+          d=$(dirname "$(find src-tauri/target -name 'libsherpa-onnx-c-api.so' | head -1)")
+          echo "sherpa-onnx libs: $d"; ls "$d"
+          echo "LD_LIBRARY_PATH=$PWD/$d" >> "$GITHUB_ENV"
+
       - name: Transcribe
         run: |
           T=$(nproc)

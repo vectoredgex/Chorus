@@ -34,6 +34,10 @@ jobs:
         shell: bash
         run: cargo build --release --locked -p rhema-stt --features parakeet --example parakeet_lines
 
+      - name: Where the sherpa-onnx DLLs were put
+        shell: bash
+        run: find src-tauri/target/release -maxdepth 3 -iname '*.dll' | grep -iv "/deps/build" | head -20
+
       - name: Download Parakeet model and a test clip
         shell: bash
         run: |
