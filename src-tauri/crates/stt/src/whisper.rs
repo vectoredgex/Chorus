@@ -274,12 +274,16 @@ pub(crate) struct PartialTiming {
     pub partial_min: usize,
     /// Then one partial per this much new audio (samples).
     pub partial_every: usize,
+    /// Quietest 20 ms frame (RMS) that counts as speech. Whisper needs it
+    /// high (it invents words from near-silence); the CTC engines don't.
+    pub voice_rms: f32,
 }
 
 /// Whisper's timing: see `PARTIAL_MIN_SAMPLES` and `PARTIAL_EVERY_SAMPLES`.
 pub(crate) const WHISPER_PARTIALS: PartialTiming = PartialTiming {
     partial_min: PARTIAL_MIN_SAMPLES,
     partial_every: PARTIAL_EVERY_SAMPLES,
+    voice_rms: 0.01,
 };
 
 /// Speech detection and phrase cutting, shared by every local engine: reads
@@ -297,8 +301,8 @@ pub(crate) fn run_segmenter(
     // Higher thresholds than default to avoid sending near-silence
     // to Whisper (which causes hallucinations).
     let vad_config = VadConfig {
-        silence_threshold: 0.01,
-        frame_threshold: 0.005,
+        silence_threshold: cfg.voice_rms,
+        frame_threshold: cfg.voice_rms / 2.0,
         min_voice_frames: VAD_MIN_VOICE_FRAMES,
         silence_frame_count: VAD_SILENCE_END_FRAMES,
         pre_buffer_frames: VAD_PRE_BUFFER_FRAMES,

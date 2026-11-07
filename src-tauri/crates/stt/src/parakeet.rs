@@ -40,7 +40,12 @@ pub const MODEL_FILES: [&str; 4] = ["encoder.int8.onnx", "decoder.int8.onnx", "j
 const PARAKEET_PARTIALS: PartialTiming = PartialTiming {
     partial_min: 16_000,
     partial_every: 16_000 * 6 / 10,
+    voice_rms: 0.01,
 };
+
+/// Malayalam: the same, but a quieter voice still counts as speech (half
+/// the level). At 0.01 a softly spoken reference was missed live.
+const MALAYALAM_PARTIALS: PartialTiming = PartialTiming { voice_rms: 0.005, ..PARAKEET_PARTIALS };
 
 /// Folder name of the Malayalam model inside `models/malayalam/`.
 pub const MALAYALAM_DIR_NAME: &str = "indicconformer-600m-ml-int8";
@@ -210,8 +215,12 @@ impl SttProvider for ParakeetProvider {
 
         let vad_cancelled = cancelled.clone();
         let vad_event_tx = event_tx.clone();
+        let timing = match self.model {
+            SherpaModel::ParakeetEnglish => PARAKEET_PARTIALS,
+            SherpaModel::IndicConformerMalayalam => MALAYALAM_PARTIALS,
+        };
         let vad_handle = tokio::task::spawn_blocking(move || {
-            run_segmenter(audio_rx, inference_tx, vad_event_tx, vad_cancelled, PARAKEET_PARTIALS);
+            run_segmenter(audio_rx, inference_tx, vad_event_tx, vad_cancelled, timing);
         });
 
         let inf_event_tx = event_tx.clone();
