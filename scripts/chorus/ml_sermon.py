@@ -9,10 +9,13 @@ Each line is spoken by a text-to-speech voice and saved as its own clip:
 Voices:
   natural  Meta MMS Malayalam voice (facebook/mms-tts-mal, via transformers)
   robot    espeak-ng Malayalam
-  anjali   AI4Bharat Indic Parler-TTS, female Malayalam speaker
-  harish   AI4Bharat Indic Parler-TTS, male Malayalam speaker
+  deep     MMS again, another seed, slower, pitch lowered (a deeper voice)
+  high     MMS again, another seed, quicker, pitch raised (a higher voice)
+  anjali   AI4Bharat Indic Parler-TTS, female Malayalam speaker (gated on
+           Hugging Face: needs HF_TOKEN from an account that accepted it)
+  harish   AI4Bharat Indic Parler-TTS, male Malayalam speaker (gated)
 
-Usage: python3 ml_sermon.py <out_dir> natural|robot|anjali|harish
+Usage: python3 ml_sermon.py <out_dir> natural|deep|high|robot|anjali|harish
 """
 
 import os
@@ -116,14 +119,26 @@ def add_noise(src, dst):
 
 
 class MmsVoice:
-    def __init__(self):
+    # name: (seed, noise_scale, speaking_rate, pitch factor)
+    STYLES = {
+        "natural": (7, None, None, 1.0),
+        "deep": (21, 0.8, 0.92, 0.84),
+        "high": (33, 0.75, 1.06, 1.16),
+    }
+
+    def __init__(self, style="natural"):
+        seed, noise, rate, self.pitch = self.STYLES[style]
         import torch
         from transformers import AutoTokenizer, VitsModel
         self.torch = torch
         self.tok = AutoTokenizer.from_pretrained("facebook/mms-tts-mal")
         self.model = VitsModel.from_pretrained("facebook/mms-tts-mal")
         self.model.eval()
-        torch.manual_seed(7)
+        if noise is not None:
+            self.model.noise_scale = noise
+        if rate is not None:
+            self.model.speaking_rate = rate
+        torch.manual_seed(seed)
 
     def say(self, text, path):
         import numpy as np
@@ -133,7 +148,14 @@ class MmsVoice:
             wav = self.model(**inputs).waveform[0].numpy()
         raw = path + ".raw.wav"
         sf.write(raw, np.asarray(wav, dtype="float32"), self.model.config.sampling_rate)
-        to16k(raw, path)
+        if self.pitch == 1.0:
+            to16k(raw, path)
+        else:
+            # Shift the pitch, keeping the speed.
+            sr = self.model.config.sampling_rate
+            run("ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", raw, "-filter:a",
+                f"asetrate={int(sr * self.pitch)},aresample={sr},atempo={1 / self.pitch:.4f}",
+                "-ar", "16000", "-ac", "1", "-sample_fmt", "s16", path)
         os.remove(raw)
 
 
@@ -195,8 +217,8 @@ def espeak_say(text, path):
 def main():
     out, voice = sys.argv[1], sys.argv[2]
     os.makedirs(out, exist_ok=True)
-    if voice == "natural":
-        say = MmsVoice().say
+    if voice in MmsVoice.STYLES:
+        say = MmsVoice(voice).say
     elif voice == "robot":
         say = espeak_say
     else:

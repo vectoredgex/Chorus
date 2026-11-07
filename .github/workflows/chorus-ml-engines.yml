@@ -5,7 +5,7 @@ name: Chorus Malayalam engines
 #   IndicConformer 600M (AI4Bharat, sherpa-onnx int8) - the front-runner
 #   a second IndicConformer export, Malayalam-tuned Whisper medium, and
 #   Whisper large-v3-turbo (what Chorus ships for English today).
-# Four voices (MMS, espeak, two AI4Bharat Parler voices), each clear,
+# Three MMS voices (as is, deeper, higher), each clear,
 # noisy, in an echoey hall, and spoken fast.
 # CPU only. Models come from Hugging Face, which only CI can reach.
 
@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        voice: [natural, anjali, harish]
+        voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -46,7 +46,7 @@ jobs:
           sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg
           pip install --quiet soundfile numpy
           case "${{ matrix.voice }}" in
-            natural) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+            natural|deep|high) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
                      pip install --quiet transformers ;;
             anjali|harish)
                      # torchaudio must be the CPU build too, or it looks for CUDA.
@@ -74,7 +74,7 @@ jobs:
         # 20 minutes for 42 short clips on CI CPUs; IndicConformer took 0.4 s
         # per line. Run them again with workflow_dispatch if ever needed.
         engine: [indicconformer]
-        voice: [natural, anjali, harish]
+        voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
