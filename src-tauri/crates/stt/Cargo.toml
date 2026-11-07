@@ -22,9 +22,12 @@ async-trait = "0.1"
 # Whisper local STT (optional)
 rhema-audio = { path = "../audio", optional = true }
 
-# NVIDIA Parakeet local STT (optional), through sherpa-onnx. Links a
-# prebuilt static sherpa-onnx + onnxruntime downloaded at build time.
-sherpa-onnx = { version = "=2.0.1", optional = true }
+# NVIDIA Parakeet local STT (optional), through sherpa-onnx. Uses the
+# prebuilt shared sherpa-onnx + onnxruntime libraries downloaded at build
+# time. Static linking failed: on Windows the static libraries use a
+# different C runtime (duplicate std:: symbols at link time), and on Linux
+# Whisper crashed when both C++ engines were linked into one binary.
+sherpa-onnx = { version = "=2.0.1", optional = true, default-features = false, features = ["shared"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"], optional = true }
