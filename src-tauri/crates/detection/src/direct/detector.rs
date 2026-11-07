@@ -501,7 +501,15 @@ pub struct DirectDetector {
     /// When a non-existent reference was last heard; a bare number pair soon
     /// after it is a correction ("Revelation 20 22 … 22 20").
     last_rejected_at: Option<std::time::Instant>,
+    /// Malayalam: the start of a reference cut off by a pause
+    /// ("സങ്കീർത്തനം" … "ഇരുപത്തിമൂന്ന്" … "ഒന്നാം വാക്യം"), with when its
+    /// utterance ended. The next utterance is read joined onto it.
+    ml_carry: Option<(String, Instant)>,
 }
+
+/// A pause longer than this ends a Malayalam reference for good.
+const ML_JOIN_GAP: std::time::Duration = std::time::Duration::from_secs(6);
+
 
 impl DirectDetector {
     pub fn new() -> Self {
@@ -516,6 +524,7 @@ impl DirectDetector {
             settled: Vec::new(),
             chorus_snapshot: None,
             last_rejected_at: None,
+            ml_carry: None,
         }
     }
 
@@ -627,7 +636,32 @@ impl DirectDetector {
         let same_utterance = self.utterance_open
             && (is_same_utterance(&self.chorus_prev_text, text) || shares_a_word(&self.chorus_prev_text, text));
         self.utterance_open = !is_final;
-        self.detect_inner(text, same_utterance)
+        if !chorus_refparse::malayalam::has_malayalam(text) {
+            self.ml_carry = None;
+            return self.detect_inner(text, same_utterance);
+        }
+        // Malayalam speakers pause inside a reference, and every pause ends
+        // an utterance. Read this one joined onto a recent unfinished start.
+        let fresh = self
+            .ml_carry
+            .as_ref()
+            .filter(|(_, at)| at.elapsed() <= ML_JOIN_GAP)
+            .map(|(t, _)| t.clone());
+        let joined = match &fresh {
+            Some(start) => format!("{start} {text}"),
+            None => text.to_string(),
+        };
+        let out = self.detect_inner(&joined, same_utterance);
+        if is_final {
+            // Carry on only while each piece adds something to a reference;
+            // chatter in between ends it.
+            self.ml_carry = if out.is_empty() && chorus_refparse::malayalam::has_reference_words(text) {
+                chorus_refparse::malayalam::carry_tail(&joined).map(|tail| (tail, Instant::now()))
+            } else {
+                None
+            };
+        }
+        out
     }
 
     fn detect_inner(&mut self, text: &str, same_utterance: bool) -> Vec<Detection> {
@@ -2587,5 +2621,49 @@ mod tests {
         assert_eq!(out[0].verse_ref.book_number, 45, "Romans");
         assert_eq!(out[0].verse_ref.chapter, 8);
         assert_eq!(out[0].verse_ref.verse_start, 28);
+    }
+
+    /// Run the finals of a live Malayalam test (Jayden's laptop) through
+    /// the detector and list what it showed.
+    fn ml_session(finals: &[&str]) -> Vec<String> {
+        let mut detector = DirectDetector::new();
+        let mut shown = Vec::new();
+        for f in finals {
+            for d in detector.detect_utterance(f, true) {
+                let v = &d.verse_ref;
+                shown.push(format!("{} {}:{}", v.book_number, v.chapter, v.verse_start));
+            }
+        }
+        shown
+    }
+
+    /// Live test 2026-11-07 17:20: pauses split each reference into pieces.
+    #[test]
+    fn malayalam_reference_split_by_pauses_is_joined() {
+        let shown = ml_session(&[
+            "സങ്കീർത്തനം അമ്പത്തി മൂന്ന്",
+            "കക്ട്",
+            "നക്ക",
+            "സ കംപ്പ സ",
+            "ആ",
+            "എട്ട",
+            "തസ ഉൽപത്തി",
+            "സങ്കീര്ത്തനം",
+            "ഇരുപത്തിമൂന്ന്",
+            "ഒന്നാം വാക്യം",
+        ]);
+        assert_eq!(shown, vec!["19 23:1"], "Psalms 23:1 only");
+    }
+
+    #[test]
+    fn malayalam_lone_verse_after_chatter_does_not_attach_to_old_chapter() {
+        let shown = ml_session(&["സങ്കീർത്തനം അമ്പത്തി മൂന്ന്", "കക്ട്", "ശ സംക്ഷ", "ആ എട്ട വി സോസ ര"]);
+        assert!(shown.is_empty(), "{shown:?}");
+    }
+
+    #[test]
+    fn malayalam_book_number_verse_in_three_pieces() {
+        let shown = ml_session(&["രണ്ടാം ദിനവൃത്താന്തം", "ഏഴാം അദ്ധ്യായം", "പതിനാലാം വാക്യം"]);
+        assert_eq!(shown, vec!["14 7:14"]);
     }
 }

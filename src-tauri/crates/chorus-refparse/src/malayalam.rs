@@ -852,6 +852,43 @@ pub fn to_english(text: &str) -> String {
     rewrite(text).0
 }
 
+fn is_reference_word(t: &Tok) -> bool {
+    match t {
+        Tok::Num(_) | Tok::Marker(_) => true,
+        Tok::Word(w) => !w.is_empty() && !matches!(w.as_str(), "to" | "and" | "same" | "gospel" | "letter" | "book"),
+        Tok::Other => false,
+    }
+}
+
+/// Whether Malayalam text holds any part of a reference: a book name, a
+/// number, or a chapter/verse word.
+pub fn has_reference_words(text: &str) -> bool {
+    split(text).iter().flat_map(|w| classify(w)).any(|(_, t)| is_reference_word(&t))
+}
+
+/// The part of an utterance worth joining onto the next one when a pause
+/// cut a reference short: from the last book name on ("…ഉൽപത്തി
+/// സങ്കീർത്തനം" -> "സങ്കീർത്തനം"), or the whole text when it names no
+/// book ("ഇരുപത്തിമൂന്ന്"). `None` when it holds no part of a reference.
+pub fn carry_tail(text: &str) -> Option<String> {
+    let words = split(text);
+    let toks: Vec<Vec<Tok>> = words.iter().map(|w| classify(w).into_iter().map(|(_, t)| t).collect()).collect();
+    if !toks.iter().flatten().any(is_reference_word) {
+        return None;
+    }
+    let is_book = |t: &Tok| matches!(t, Tok::Word(w) if crate::books::BOOKS.iter().any(|b| {
+        let n = b.name.to_ascii_lowercase();
+        n == *w || n.ends_with(&format!(" {w}")) || n.starts_with(&format!("{w} "))
+    }) || is_family(w));
+    let mut start = toks.iter().rposition(|ts| ts.iter().any(is_book)).unwrap_or(0);
+    // Keep "ഒന്നാം" before "യോഹന്നാൻ".
+    if start > 0 && toks[start - 1].iter().any(|t| matches!(t, Tok::Num(n) if n.ordinal && n.value <= 3)) {
+        start -= 1;
+    }
+    let from = words.len().saturating_sub(8).max(start);
+    Some(words[from..].join(" "))
+}
+
 /// [`to_english`], and whether a reference to a book we could not make out
 /// was dropped. Follow-ups after it ("അതേ അദ്ധ്യായം", "അടുത്ത വാക്യം")
 /// must not attach to an older reference.
