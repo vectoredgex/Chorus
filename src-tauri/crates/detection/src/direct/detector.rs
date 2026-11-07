@@ -490,6 +490,8 @@ pub struct DirectDetector {
     chorus: chorus_refparse::Detector,
     /// Text of the previous call, to recognise partials of the same utterance.
     chorus_prev_text: String,
+    /// Set while partials of one utterance are arriving; cleared by its final.
+    utterance_open: bool,
     /// Context as it stood before the current utterance started, so relative
     /// follow-ups ("the next verse") don't advance again on every partial.
     chorus_snapshot: Option<chorus_refparse::Reference>,
@@ -507,6 +509,7 @@ impl DirectDetector {
             recent_detections: VecDeque::with_capacity(5),
             chorus: chorus_refparse::Detector::new(),
             chorus_prev_text: String::new(),
+            utterance_open: false,
             chorus_snapshot: None,
             last_rejected_at: None,
         }
@@ -604,6 +607,26 @@ impl DirectDetector {
     /// streaming completions, corrections and "previous verse" commands.
     pub fn detect(&mut self, text: &str) -> Vec<Detection> {
         let same_utterance = is_same_utterance(&self.chorus_prev_text, text);
+        self.detect_inner(text, same_utterance)
+    }
+
+    /// Like [`detect`], for callers that know which transcript is the final
+    /// one of an utterance (the app and the replay). Everything between two
+    /// finals is one utterance, however much the engine rewrites it
+    /// ("Then next source" -> "Till next shows" -> "Tell next"), so a
+    /// follow-up like "next verse" moves on exactly once. And a new
+    /// utterance always counts as new, even when it repeats the last one
+    /// word for word ("Next verse." ... "Next verse.").
+    pub fn detect_utterance(&mut self, text: &str, is_final: bool) -> Vec<Detection> {
+        // A final can be dropped when the detection queue is full; sharing
+        // no word at all with the last text means a new utterance anyway.
+        let same_utterance = self.utterance_open
+            && (is_same_utterance(&self.chorus_prev_text, text) || shares_a_word(&self.chorus_prev_text, text));
+        self.utterance_open = !is_final;
+        self.detect_inner(text, same_utterance)
+    }
+
+    fn detect_inner(&mut self, text: &str, same_utterance: bool) -> Vec<Detection> {
         if same_utterance {
             self.chorus.set_last(self.chorus_snapshot);
         } else {
@@ -1150,6 +1173,18 @@ impl DirectDetector {
             }
         }
     }
+}
+
+/// True when the two texts have any word of three or more letters in common.
+fn shares_a_word(prev: &str, text: &str) -> bool {
+    let words = |s: &str| -> Vec<String> {
+        s.split_whitespace()
+            .map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
+            .filter(|w| w.len() >= 3)
+            .collect()
+    };
+    let a = words(prev);
+    words(text).iter().any(|w| a.contains(w))
 }
 
 /// Partials of one utterance share most of their opening text.
@@ -2058,6 +2093,26 @@ mod tests {
             }
         }
         assert!(shown.iter().all(|&(c, v)| c == 3 && v == 17), "{shown:?}");
+    }
+
+    #[test]
+    fn test_rewritten_partials_advance_once_and_repeats_advance_again() {
+        // Live test 2026-11-07: one "next verse" came through as
+        // "Then next source." -> "Till next shows." -> "Tell next."
+        let mut d = DirectDetector::new();
+        assert_eq!(d.detect_utterance("Romans chapter three verse six.", true).len(), 1);
+        let mut shown = Vec::new();
+        for (text, fin) in [("Then next source.", false), ("Till next shows.", false), ("Tell next.", true)] {
+            for r in d.detect_utterance(text, fin) {
+                shown.push(r.verse_ref.verse_start);
+            }
+        }
+        assert!(!shown.is_empty() && shown.iter().all(|&v| v == 7), "{shown:?}");
+        // Saying it again, word for word, is a new command.
+        let again: Vec<_> = d.detect_utterance("Next verse.", true).iter().map(|r| r.verse_ref.verse_start).collect();
+        assert_eq!(again, vec![8]);
+        let again: Vec<_> = d.detect_utterance("Next verse.", true).iter().map(|r| r.verse_ref.verse_start).collect();
+        assert_eq!(again, vec![9]);
     }
 
     #[test]

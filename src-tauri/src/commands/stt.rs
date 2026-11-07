@@ -576,7 +576,7 @@ fn run_direct_detection(app: &AppHandle, transcript: &str, is_final: bool) -> bo
             return false;
         }
     };
-    let direct_results = detector.detect(transcript);
+    let direct_results = detector.detect_utterance(transcript, is_final);
     drop(detector); // Release immediately
     let direct_results = match PARTIAL_CONFIRMER.lock() {
         Ok(mut c) => c.filter(direct_results, is_final),

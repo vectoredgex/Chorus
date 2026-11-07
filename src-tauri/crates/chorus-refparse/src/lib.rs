@@ -729,7 +729,11 @@ impl Detector {
             k += 1;
         }
         // "next verse", also misheard as "next merse".
-        if tok(t, k) == "next" && (VERSE_WORDS.contains(&tok(t, k + 1)) || sounds_like_verse(tok(t, k + 1))) {
+        // A short command on its own ("Next was", "next shows") is also
+        // "next verse" heard badly; inside a longer sentence it is not.
+        let short_s_word = |w: &str| t.len() <= 4 && w.len() >= 3 && w.ends_with('s') && w.bytes().all(|b| b.is_ascii_lowercase());
+        let w = tok(t, k + 1);
+        if tok(t, k) == "next" && (VERSE_WORDS.contains(&w) || sounds_like_verse(w) || short_s_word(w)) {
             let v = last.verse_end.or(last.verse_start)? + 1;
             let r = Reference { verse_start: Some(v), verse_end: None, ..last };
             return Some(Self::emit(t, i, k + 2, r, Confidence::Medium, Source::Context));

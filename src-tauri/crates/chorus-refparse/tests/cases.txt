@@ -318,3 +318,10 @@ Now look at the Merry Next Merse. => John 3:17 [M]
 
 Doshu 1-9, be strong and courageous. => Joshua 1:9 [M]
 we spent 1-9 hours on it => NONE
+
+# --- Live test 2026-11-07: "next verse" heard badly ---------------------------
+Romans chapter three verse six => Romans 3:6 [H]
+Then next source. => Romans 3:7 [M]
+Next was => Romans 3:8 [M]
+Till next shows. => Romans 3:9 [M]
+the next ones were better than the first ones I think => NONE
