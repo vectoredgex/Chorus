@@ -30,6 +30,21 @@ const MIN_BUFFER_SAMPLES: usize = 16_000;
 /// should reach the screen while they are still mid-sentence.
 const PARTIAL_EVERY_SAMPLES: usize = 16_000 * 3 / 2;
 
+/// No live partial until the utterance is this long (3 seconds). Most
+/// references ("Luke chapter five verse two") are said in under 3 s; a
+/// partial on such a short phrase only delays its final transcript, because
+/// the final has to wait for the partial to finish (measured on the owner's
+/// laptop: ~6 s instead of ~1 s from end of speech to verse on screen).
+const PARTIAL_MIN_SAMPLES: usize = 16_000 * 3;
+
+/// When Whisper falls behind and several finished phrases are waiting, they
+/// are joined and transcribed in one pass, up to this much audio (20 s).
+/// One pass over 6 s costs far less than three passes over 2 s each.
+const MERGE_MAX_SAMPLES: usize = 16_000 * 20;
+
+/// Silence put between joined phrases (0.3 s) so words don't run together.
+const MERGE_GAP_SAMPLES: usize = 16_000 * 3 / 10;
+
 /// A speech piece shorter than `MIN_BUFFER_SAMPLES` (a single word such as
 /// "John" before a short pause) is kept and joined to the next piece, unless
 /// the next one starts more than this long after it.
@@ -139,6 +154,35 @@ const VAD_PRE_BUFFER_FRAMES: usize = 300 / 20;
 const VAD_MAX_UTTERANCE_FRAMES: usize = 15_000 / 20;
 
 /// Audio sent to the inference task.
+/// Joins a finished phrase with finished phrases already waiting behind it,
+/// so a backlog is cleared in one Whisper pass instead of one pass each.
+/// Waiting partials are stale and dropped. The first batch stops before it
+/// would pass `MERGE_MAX_SAMPLES`; the phrases that did not fit are joined
+/// into a second batch (keeping only its newest `MERGE_MAX_SAMPLES` if
+/// Whisper is that far behind) which is transcribed next.
+fn merge_queued_finals(first: Vec<i16>, queued: Vec<Job>) -> (Vec<i16>, Option<Job>) {
+    fn join(into: &mut Vec<i16>, audio: &[i16]) {
+        if !into.is_empty() {
+            into.resize(into.len() + MERGE_GAP_SAMPLES, 0);
+        }
+        into.extend_from_slice(audio);
+    }
+    let mut merged = first;
+    let mut rest: Vec<i16> = Vec::new();
+    for job in queued {
+        let Job::Final(audio) = job else { continue };
+        if rest.is_empty() && merged.len() + MERGE_GAP_SAMPLES + audio.len() <= MERGE_MAX_SAMPLES {
+            join(&mut merged, &audio);
+        } else {
+            join(&mut rest, &audio);
+        }
+    }
+    if rest.len() > MERGE_MAX_SAMPLES {
+        rest.drain(..rest.len() - MERGE_MAX_SAMPLES);
+    }
+    (merged, (!rest.is_empty()).then_some(Job::Final(rest)))
+}
+
 enum Job {
     /// Speech so far in an ongoing utterance. Skipped if a newer job is
     /// already waiting, so a slow CPU never falls behind.
@@ -385,7 +429,7 @@ impl SttProvider for WhisperProvider {
                             let _ = inference_tx
                                 .blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
                             partial_mark = 0;
-                        } else if audio_buffer.len() >= MIN_BUFFER_SAMPLES
+                        } else if audio_buffer.len() >= PARTIAL_MIN_SAMPLES
                             && audio_buffer.len() >= partial_mark + PARTIAL_EVERY_SAMPLES
                         {
                             // Never block the audio loop for a partial; if the
@@ -443,7 +487,10 @@ impl SttProvider for WhisperProvider {
             let mut previous_text = String::new();
             let mut previous_at: Option<std::time::Instant> = None;
 
-            while let Some(mut job) = inference_rx.blocking_recv() {
+            // A finished phrase taken off the queue but not yet transcribed.
+            let mut pending_job: Option<Job> = None;
+
+            while let Some(mut job) = pending_job.take().or_else(|| inference_rx.blocking_recv()) {
                 if inf_cancelled.load(Ordering::SeqCst) {
                     break;
                 }
@@ -456,7 +503,19 @@ impl SttProvider for WhisperProvider {
                 }
                 let (audio_i16, is_partial) = match job {
                     Job::Partial(a) => (a, true),
-                    Job::Final(a) => (a, false),
+                    Job::Final(a) => {
+                        let mut queued = Vec::new();
+                        while let Ok(next) = inference_rx.try_recv() {
+                            queued.push(next);
+                        }
+                        let (merged, left) = merge_queued_finals(a, queued);
+                        if let Some(next) = left {
+                            // Too long to join; it goes back to the front
+                            // of the line after this one.
+                            pending_job = Some(next);
+                        }
+                        (merged, false)
+                    }
                 };
 
                 let mut audio_f32 = i16_to_f32(&audio_i16);
@@ -545,6 +604,33 @@ impl SttProvider for WhisperProvider {
 #[cfg(test)]
 mod chorus_tests {
     use super::{audio_ctx_for, current_prompt, set_context_hint, BIBLE_PROMPT};
+    use super::{merge_queued_finals, Job, MERGE_GAP_SAMPLES, MERGE_MAX_SAMPLES};
+
+    #[test]
+    fn queued_finals_are_joined_and_partials_dropped() {
+        let (merged, rest) = merge_queued_finals(
+            vec![1; 100],
+            vec![Job::Partial(vec![9; 50]), Job::Final(vec![2; 200]), Job::Final(vec![3; 300])],
+        );
+        assert_eq!(merged.len(), 100 + MERGE_GAP_SAMPLES + 200 + MERGE_GAP_SAMPLES + 300);
+        assert!(!merged.contains(&9));
+        assert_eq!(merged[0], 1);
+        assert_eq!(*merged.last().unwrap(), 3);
+        assert!(rest.is_none());
+    }
+
+    #[test]
+    fn backlog_over_the_limit_goes_to_a_second_batch() {
+        let big = MERGE_MAX_SAMPLES - 1000;
+        let (merged, rest) = merge_queued_finals(
+            vec![1; big],
+            vec![Job::Final(vec![2; 5000]), Job::Final(vec![3; 100])],
+        );
+        assert_eq!(merged.len(), big);
+        let Some(Job::Final(rest)) = rest else { panic!("expected a second batch") };
+        assert_eq!(rest.len(), 5000 + MERGE_GAP_SAMPLES + 100);
+        assert_eq!(rest[0], 2);
+    }
 
     #[test]
     fn quiet_audio_is_raised_loud_audio_untouched() {

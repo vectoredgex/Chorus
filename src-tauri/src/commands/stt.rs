@@ -622,8 +622,18 @@ fn run_direct_detection(app: &AppHandle, transcript: &str, is_final: bool) -> bo
 /// Run FTS5-only detection. ONNX/vector pipeline is skipped for speed.
 /// FTS5 phrase match finds exact scripture quotes; direct detection handles
 /// verse references; ONNX can be re-enabled later with parallelized vector search.
+/// Fewest words a sentence needs before Chorus looks for it as a quoted
+/// verse. Short sentences ("Okay", "No", "Send love") match dozens of
+/// verses by chance; in the owner's live test every such guess was noise.
+const QUOTE_MIN_WORDS: usize = 5;
+
 fn run_semantic_detection(app: &AppHandle, transcript: &str) {
     let t0 = std::time::Instant::now();
+    let words = transcript.split_whitespace().filter(|w| w.chars().any(char::is_alphanumeric)).count();
+    if words < QUOTE_MIN_WORDS {
+        log::info!("[DET-SEMANTIC] Skipped — only {words} words");
+        return;
+    }
     log::info!("[DET-SEMANTIC] Running on: {:?}", truncate_safe(transcript, 80));
 
     // FTS5 BM25 phrase search (~5ms)
@@ -642,8 +652,11 @@ fn run_semantic_detection(app: &AppHandle, transcript: &str) {
         log::info!("[DET-SEMANTIC] No FTS5 results");
         return;
     };
+    // Only verses that contain the spoken words as an exact phrase: the
+    // looser "some of these words" matches were random verses in live use.
+    let fts: Vec<_> = fts.into_iter().filter(|hit| hit.phrase_match).collect();
     if fts.is_empty() {
-        log::info!("[DET-SEMANTIC] No FTS5 results");
+        log::info!("[DET-SEMANTIC] No exact quote found");
         return;
     }
 

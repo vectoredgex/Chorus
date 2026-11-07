@@ -435,6 +435,13 @@ const CONTEXTUAL_CHAPTER_VERSE_CONFIDENCE: f64 = 0.95;
 const CONTEXTUAL_VERSE_ONLY_CONFIDENCE: f64 = 0.92;
 const CONTEXTUAL_BARE_COLON_CONFIDENCE: f64 = 0.90;
 
+/// Two bare numbers ("4 5", or Whisper's "4.5") with no book, no colon and
+/// no "chapter"/"verse" word, when they are NOT correcting a reference that
+/// was just rejected. Below the 0.80 auto-queue threshold, so the operator
+/// confirms. Live test: a mumble transcribed "4.5, Taiwan." right after
+/// "Luke chapter 5 verse 2" jumped the screen to Luke 4:5.
+const CONTEXTUAL_LOOSE_PAIR_CONFIDENCE: f64 = 0.78;
+
 /// Bare "N:M" (no "chapter"/"verse" keyword) is the riskiest contextual
 /// pattern — it can match times of day — so it only resolves against context
 /// updated within this window. Corrections ("Revelation 20:22... 22:20")
@@ -486,6 +493,9 @@ pub struct DirectDetector {
     /// Context as it stood before the current utterance started, so relative
     /// follow-ups ("the next verse") don't advance again on every partial.
     chorus_snapshot: Option<chorus_refparse::Reference>,
+    /// When a non-existent reference was last heard; a bare number pair soon
+    /// after it is a correction ("Revelation 20 22 … 22 20").
+    last_rejected_at: Option<std::time::Instant>,
 }
 
 impl DirectDetector {
@@ -498,6 +508,7 @@ impl DirectDetector {
             chorus: chorus_refparse::Detector::new(),
             chorus_prev_text: String::new(),
             chorus_snapshot: None,
+            last_rejected_at: None,
         }
     }
 
@@ -941,12 +952,15 @@ impl DirectDetector {
                 verse_start: verse,
                 verse_end: None,
             };
+            let correcting = self
+                .last_rejected_at
+                .is_some_and(|t| t.elapsed().as_secs() < BARE_COLON_CONTEXT_WINDOW_SECS);
             self.push_recent(&verse_ref);
             self.context.update(&verse_ref);
             self.incomplete = None;
             return Some(self.make_direct_detection(
                 &verse_ref,
-                CONTEXTUAL_BARE_COLON_CONFIDENCE,
+                if correcting { CONTEXTUAL_BARE_COLON_CONFIDENCE } else { CONTEXTUAL_LOOSE_PAIR_CONFIDENCE },
                 text,
                 0,
                 text.len(),
@@ -1032,6 +1046,7 @@ impl DirectDetector {
     /// itself is valid) as context, so a follow-up correction that omits the
     /// book name can still resolve.
     fn remember_rejected(&mut self, verse_ref: &VerseRef) {
+        self.last_rejected_at = Some(std::time::Instant::now());
         let mut ctx_ref = verse_ref.clone();
         ctx_ref.verse_start = 0;
         ctx_ref.verse_end = None;
@@ -2003,6 +2018,27 @@ mod tests {
         let mut detector = DirectDetector::new();
         let results = detector.detect("Revelation 20:22");
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_loose_number_pair_needs_confirmation() {
+        // Live test: "Luke chapter 5 verse 2" then a mumble heard as
+        // "4.5, Taiwan." must not go straight to the screen.
+        let mut detector = DirectDetector::new();
+        assert_eq!(detector.detect("Luke chapter 5 verse 2.").len(), 1);
+        let results = detector.detect("4.5, Taiwan.");
+        if let Some(r) = results.first() {
+            assert!(r.confidence < 0.80, "auto-shown at {}", r.confidence);
+        }
+    }
+
+    #[test]
+    fn test_correction_pair_is_still_trusted() {
+        let mut detector = DirectDetector::new();
+        assert!(detector.detect("Revelation 20 22.").is_empty());
+        let results = detector.detect("22 20.");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].confidence >= 0.90);
     }
 
     #[test]
