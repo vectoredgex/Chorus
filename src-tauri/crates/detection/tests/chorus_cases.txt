@@ -311,3 +311,10 @@ Luke chapter three verse four => Luke 3:4 [H]
 and then we can turn into the book of this chapter 4, verse 3. => NONE
 and then we can turn to the book of Ezekiel chapter 4, verse 3. => Ezekiel 4:3 [H]
 now chapter 5 verse 2 => Ezekiel 5:2 [M]
+
+# --- Parakeet replay misses (robot voice) -------------------------------------
+Please open your Bibles with me to John chapter 3, verse 16. => John 3:16 [H]
+Now look at the Merry Next Merse. => John 3:17 [M]
+
+Doshu 1-9, be strong and courageous. => Joshua 1:9 [M]
+we spent 1-9 hours on it => NONE
