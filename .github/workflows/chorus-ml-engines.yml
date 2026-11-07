@@ -1,0 +1,118 @@
+name: Chorus Malayalam engines
+
+# Compares Malayalam speech engines on a spoken test sermon full of Bible
+# references (book names, chapter and verse numbers in Malayalam):
+#   IndicConformer 600M (AI4Bharat, sherpa-onnx int8) - the front-runner
+#   a second IndicConformer export, Malayalam-tuned Whisper medium, and
+#   Whisper large-v3-turbo (what Chorus ships for English today).
+# Two voices (natural MMS voice, robotic espeak), each clear and noisy.
+# CPU only. Models come from Hugging Face, which only CI can reach.
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "scripts/chorus/ml_*.py"
+      - ".github/workflows/chorus-ml-engines.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-ml-engines-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+jobs:
+  audio:
+    name: Speak sermon (${{ matrix.voice }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        voice: [natural, robot]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install tools
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg
+          pip install --quiet soundfile numpy
+          if [ "${{ matrix.voice }}" = natural ]; then
+            pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+            pip install --quiet transformers
+          fi
+      - name: Speak
+        run: python3 scripts/chorus/ml_sermon.py clips ${{ matrix.voice }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clips-${{ matrix.voice }}
+          path: clips/*.wav
+
+  transcribe:
+    name: ${{ matrix.engine }} (${{ matrix.voice }})
+    needs: audio
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [indicconformer, indicconformer-alt, whisper-ml, whisper-turbo]
+        voice: [natural, robot]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: clips-${{ matrix.voice }}
+          path: clips
+      - name: Install
+        run: |
+          pip install --quiet soundfile numpy huggingface_hub
+          case "${{ matrix.engine }}" in
+            indicconformer*) pip install --quiet sherpa-onnx ;;
+            *) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+               pip install --quiet transformers ;;
+          esac
+      - name: Cache model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: ml-engines-hf-${{ matrix.engine }}-v1
+      - name: Transcribe
+        run: |
+          mkdir -p out
+          E=${{ matrix.engine }}; V=${{ matrix.voice }}; T=$(nproc)
+          python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??.wav) > out/${E}_${V}_clear.tsv
+          python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??_noisy.wav) > out/${E}_${V}_noisy.tsv
+          cat out/*.tsv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: text-${{ matrix.engine }}-${{ matrix.voice }}
+          path: out/*.tsv
+
+  score:
+    name: Score
+    needs: transcribe
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: text-*
+          path: out
+          merge-multiple: true
+      - name: Score
+        run: |
+          ls out
+          python3 scripts/chorus/ml_score.py $(ls out/*.tsv | sort) | tee score.txt
+          { echo '```'; cat score.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
