@@ -94,7 +94,7 @@ const BOOKS: Record<string, [number, string, string]> = {
 // Other spellings of the book codes some eBible files use.
 const ALT_CODES: Record<string, string> = {
   JUG: "JDG", RUTH: "RUT", "1SM": "1SA", "2SM": "2SA", "1KG": "1KI", "2KG": "2KI", PSM: "PSA",
-  PRV: "PRO", SOS: "SNG", SON: "SNG", EZE: "EZK", JOE: "JOL", JOEL: "JOL", NAH: "NAM", NAHUM: "NAM",
+  PRV: "PRO", SOS: "SNG", SON: "SNG", SOL: "SNG", EZE: "EZK", JOE: "JOL", JOEL: "JOL", NAH: "NAM", NAHUM: "NAM",
   MAR: "MRK", MRK: "MRK", JOH: "JHN", JOHN: "JHN", ACTS: "ACT", PHI: "PHP", PHIL: "PHP", JAM: "JAS",
   "1JO": "1JN", "2JO": "2JN", "3JO": "3JN", JDE: "JUD", JUDE: "JUD", PHL: "PHM", TTS: "TIT",
 }
