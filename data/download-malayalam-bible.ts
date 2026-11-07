@@ -1,9 +1,11 @@
 /**
- * Adds the Malayalam Bible (Sathyavedapusthakam, 1910 edition, public
- * domain) to rhema.db as translation "ML1910".
+ * Adds the Malayalam Bible (Sathyavedapusthakam, 1910 edition) to rhema.db
+ * as translation "ML1910".
  *
- * Source: eBible.org, "mal1910" (verse-per-line text). Safe to run again:
- * an existing ML1910 is replaced.
+ * Source: eBible.org "mal2015": the public-domain 1910 text in today's
+ * Malayalam script, digitised by The Free Bible Foundation (tfbf.in) and
+ * shared under Creative Commons Attribution-ShareAlike 4.0 — free to use,
+ * with credit. Safe to run again: an existing ML1910 is replaced.
  *
  * Run: bun run download:malayalam-bible
  *      bun run data/download-malayalam-bible.ts [path/to/rhema.db]
@@ -15,8 +17,8 @@ import { join } from "node:path"
 
 const DATA_DIR = import.meta.dir
 const DB_PATH = process.argv[2] ?? join(DATA_DIR, "rhema.db")
-const WORK_DIR = join(DATA_DIR, "sources", "mal1910")
-const ZIP_URL = "https://ebible.org/Scriptures/mal1910_vpl.zip"
+const WORK_DIR = join(DATA_DIR, "sources", "mal2015")
+const ZIP_URL = "https://ebible.org/Scriptures/mal2015_vpl.zip"
 const ABBREV = "ML1910"
 
 // USFM book code -> [book number, Malayalam name, short name]
@@ -91,7 +93,7 @@ const BOOKS: Record<string, [number, string, string]> = {
 
 async function download(): Promise<string> {
   mkdirSync(WORK_DIR, { recursive: true })
-  const zip = join(WORK_DIR, "mal1910_vpl.zip")
+  const zip = join(WORK_DIR, "mal2015_vpl.zip")
   if (!existsSync(zip)) {
     console.log(`  Downloading ${ZIP_URL}...`)
     const res = await fetch(ZIP_URL)
@@ -158,7 +160,12 @@ async function main() {
   }
   db.run(
     "INSERT INTO translations (abbreviation, title, language, license) VALUES (?, ?, ?, ?)",
-    [ABBREV, "സത്യവേദപുസ്തകം (Malayalam Bible 1910)", "ml", "Public Domain"]
+    [
+      ABBREV,
+      "സത്യവേദപുസ്തകം 1910 (Malayalam Bible)",
+      "ml",
+      "CC BY-SA 4.0, © 2015 The Free Bible Foundation (tfbf.in), based on the public-domain 1910 edition; source eBible.org",
+    ]
   )
   const tid = (db.query("SELECT last_insert_rowid() AS id").get() as { id: number }).id
   const insertBook = db.prepare(
