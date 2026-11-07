@@ -118,3 +118,7 @@
 പ്രോവർ പന്ത്രണ്ടിൽ ഒന്നും രണ്ടും വാക്യങ്ങൾ => NONE
 # A guess must have the chapter: Obadiah has one.
 ഇരതിയാറ് ഇരുപത്തൊമ്പത് അധ്യായം പതിനെന്ന ബാക്കി => NONE
+
+# --- Second live test: "<number> വാക്യം <number>" the English way --------
+സങ്കീർത്തനം ഇരുപത്തി മൂന്ന് വാക്യം ഒന്ന് => Psalms 23:1 [H]
+രണ്ടാം ദിനവൃത്താന്തം പതിനഞ്ച് വാക്യം അഞ്ച് => 2 Chronicles 15:5 [H]

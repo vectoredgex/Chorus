@@ -2666,4 +2666,16 @@ mod tests {
         let shown = ml_session(&["രണ്ടാം ദിനവൃത്താന്തം", "ഏഴാം അദ്ധ്യായം", "പതിനാലാം വാക്യം"]);
         assert_eq!(shown, vec!["14 7:14"]);
     }
+
+    #[test]
+    fn malayalam_full_live_session_two() {
+        let shown = ml_session(&[
+            "സങ്കീർത്തനം അമ്പത്തി മൂന്ന്", "കക്ട്", "നക്ക", "സ കംപ്പ സ", "ആ", "എട്ട", "തസ ഉൽപത്തി",
+            "സങ്കീര്ത്തനം", "ഇരുപത്തിമൂന്ന്", "ശ സംക്ഷ", "ദിനവൃത്താന്തം", "പതിനഞ്ച്", "വാക്യം അഞ്ച്",
+            "ആ എട്ട വി സോസ ര",
+        ]);
+        // Chronicles without ഒന്നാം/രണ്ടാം: 1 Chronicles is a guess, but
+        // never the old Psalms 53.
+        assert_eq!(shown, vec!["13 15:5"]);
+    }
 }

@@ -1158,10 +1158,19 @@ pub fn rewrite(text: &str) -> (String, bool) {
     let mut k = 0;
     while k < out.len() {
         if let Tok::Marker(m) = out[k] {
-            if let Some(start) = group_start(&out, k) {
-                let marker = out.remove(k);
-                out.insert(start, marker);
-                let _ = m;
+            // "പതിനഞ്ച് വാക്യം അഞ്ച്" is 15, verse 5: a word between a plain
+            // number and another number belongs to the one after it, the
+            // English way. "പതിനഞ്ചാം വാക്യം" (ordinal) is verse 15.
+            let cardinal = |t: Option<&Tok>| matches!(t, Some(Tok::Num(n)) if !n.ordinal && !n.and);
+            let forward = m == "verse"
+                && cardinal(out.get(k + 1))
+                && cardinal(k.checked_sub(1).and_then(|p| out.get(p)));
+            if !forward {
+                if let Some(start) = group_start(&out, k) {
+                    let marker = out.remove(k);
+                    out.insert(start, marker);
+                    let _ = m;
+                }
             }
         }
         k += 1;
