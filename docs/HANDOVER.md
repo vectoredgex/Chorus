@@ -3,7 +3,7 @@
 Read this whole file before touching anything. It is written so you can pick up
 the work immediately, without asking the owner questions.
 
-Last updated: 2026-11-07, 02:25 Asia/Qatar (UTC+3).
+Last updated: 2026-11-07, 03:40 Asia/Qatar (UTC+3).
 
 ---
 
@@ -143,7 +143,9 @@ Claude-Session: https://claude.ai/code/session_018gD4MFkA72rx7CA2JZPpb8
   numbered book is part of its name: "Revelation 21, 2 Corinthians 13"),
   **fuzzy misheard book names** (`try_fuzzy`, Jaro-Winkler, only when chapter
   AND verse follow; source = `Source::Fuzzy`), `is_song_verse()` ("verse two of
-  the hymn" → nothing). Confidence High/Medium/Low.
+  the hymn" → nothing), misheard "verse" between chapter and verse number
+  (`sounds_like_verse`: mercer, worse, purse, hers — not were/where/years).
+  Confidence High/Medium/Low.
 - `tests/cases.txt` — **the sermon phrase test set** (~240 phrases incl. trap
   phrases and multi-line sermon context). Format documented at top of file.
   **Keep `src-tauri/crates/detection/tests/chorus_cases.txt` an exact copy**
@@ -187,8 +189,8 @@ Claude-Session: https://claude.ai/code/session_018gD4MFkA72rx7CA2JZPpb8
     on the MX550.) `encoder_window()` uses it for CPU and GPU.
   - `BIBLE_PROMPT` + `set_context_hint()` + previous 20 words of the last
     final (dropped after 20 s) → `current_prompt(previous)`.
-  - `level_volume()` (uncommitted at time of writing → see §8) — raises quiet
-    phrases so the 99.5th-percentile level reaches 0.5, max 8×.
+  - `level_volume()` — raises quiet phrases so the 99.5th-percentile level
+    reaches 0.5, max 8×. Loud audio is never turned down.
   - `cleanup::remove_repeats()` (`src/cleanup.rs`) — removes Whisper loops
     of ≥3 words ("Romans 8:28, Romans 8:28, …"), keeps "holy, holy, holy".
   - `GPU_BUILD` = cfg(cuda|vulkan): `use_gpu(true)` + `flash_attn(true)`.
@@ -310,19 +312,23 @@ gh api repos/vectoredgex/Chorus/actions/jobs/<JOB>/logs | sed 's/^[0-9TZ:.-]* //
 
 ## 8. State at handover & immediate next steps
 
-Uncommitted at time of writing: `level_volume()` in `crates/stt/src/whisper.rs`
-(+ unit test). It was verified standalone. Commit it to `chorus/wip`.
+As of 2026-11-07 ~03:40 Qatar: `chorus/gpu` == `chorus/wip` == 22be974, and
+**every CI workflow is green** (tests incl. lock file and 99% benchmark, app
+compile, CUDA + Vulkan builds, Whisper speed, sermon replay).
 
-Running on GitHub when this was written: **Chorus replay** run 42310342635
-(commit 73dcf1d — has time-based VAD, sized GPU window, partial confirmation,
-lists fix, previous-sentence prompt; NOT volume levelling). Read its logs
-for `CHORUS REPLAY` lines, `MISSED`, `WRONG`.
+Latest sermon replay (real pipeline, CPU, 14 expected verses):
+natural voice 14/14 clear and 14/14 noisy; robot voice 14/14 clear and
+12/14 noisy; **0 wrong verses in every run**. The two robot-noisy misses
+were transcripts too garbled to rescue ("I like 40, most 31").
+
+Since then nothing is pending. The owner has not yet re-tested on the laptop
+with these changes.
 
 ### Next steps, in order
-1. Read replay results; fix what they show (accuracy first). If phrase
-   boundaries still cause misses, implement **Silero VAD** (see §10).
-2. When `chorus-tests` + `chorus-replay` + GPU builds are green on
-   `chorus/wip`, **fast-forward `chorus/gpu`** and push.
+1. Get the owner's live GPU test log (laptop needed) and fix what it shows.
+   If phrase boundaries still cause misses, implement **Silero VAD** (§10).
+2. For every change: push to `chorus/wip`, wait for green CI including the
+   replay, then **fast-forward `chorus/gpu`** and push.
 3. Update the project doc `claude/chorus-status.md` and send the owner a
    short plain-English summary (SendUserMessage) of what changed and the
    measured numbers. Tell them: `git pull` then `bun run dev:gpu`.
