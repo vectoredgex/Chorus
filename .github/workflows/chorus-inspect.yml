@@ -36,3 +36,22 @@ jobs:
           cargo search sherpa --limit 20
           cargo search parakeet --limit 20
           cargo search "onnx asr" --limit 10
+
+      - name: Parakeet-capable crate sources
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/cr && cd /tmp/cr
+          for c in sherpa-rs/0.6.8 sherpa-rs-sys/0.6.8 sherpa-onnx/2.0.1 sherpa-onnx-sys/2.0.1 parakeet-rs/0.4.4; do
+            n=${c%/*}; v=${c#*/}
+            curl -sL "https://static.crates.io/crates/$n/$n-$v.crate" | tar xz
+          done
+          for d in */; do
+            echo "==== CRATE $d"; cat "$d/Cargo.toml" | sed -n '/^\[package\]/,/^\[lib\]/p;/^\[dependencies/,$p' | head -80
+            find "$d" -name "*.rs" | head -40
+          done
+          echo "==== sherpa-rs transducer"; cat sherpa-rs-0.6.8/src/transducer.rs 2>/dev/null | head -150
+          echo "==== sherpa-rs-sys build.rs"; head -120 sherpa-rs-sys-0.6.8/build.rs
+          echo "==== sherpa-onnx lib"; grep -rn "pub fn\|pub struct" sherpa-onnx-2.0.1/src | grep -i "offline\|transducer\|recogn" | head -60
+          echo "==== sherpa-onnx-sys build.rs"; head -120 sherpa-onnx-sys-2.0.1/build.rs
+          echo "==== parakeet-rs lib"; grep -rn "pub fn\|pub struct" parakeet-rs-0.4.4/src | head -60
+          sed -n '1,80p' parakeet-rs-0.4.4/README.md
