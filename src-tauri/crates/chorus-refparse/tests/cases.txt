@@ -305,3 +305,9 @@ Read chapters 1-3 of Genesis => NONE
 # A misheard chapter must not send a follow-up to the previous book (measured)
 Paul says the same thing in Romans chapter eight, verse twenty eight. => Romans 8:28
 Let us turn to 1 Corinthians 30, verses 4 to 7. => NONE
+
+# --- Live test 2026-11-07: "Ezekiel" heard as "this" ------------------------
+Luke chapter three verse four => Luke 3:4 [H]
+and then we can turn into the book of this chapter 4, verse 3. => NONE
+and then we can turn to the book of Ezekiel chapter 4, verse 3. => Ezekiel 4:3 [H]
+now chapter 5 verse 2 => Ezekiel 5:2 [M]

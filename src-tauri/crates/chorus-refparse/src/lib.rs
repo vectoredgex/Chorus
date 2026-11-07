@@ -727,6 +727,17 @@ impl Detector {
                 return Some(Self::emit(t, i, k + n.len + 1, r, Confidence::Medium, Source::Context));
             }
         }
+        // "the book of <misheard word> chapter 4 verse 3": the speaker named a
+        // new book that the speech engine lost. Borrowing the last book here
+        // shows a confidently wrong verse, so wait for a clear repeat instead.
+        let named_lost_book = (1..=3).any(|b| {
+            i > b
+                && matches!(tok(t, i - b - 1), "book" | "gospel" | "epistle" | "letter")
+                && tok(t, i - b) == "of"
+        });
+        if named_lost_book {
+            return None;
+        }
         // "chapter 4 verse 5", "chapter 5"
         if CHAPTER_WORDS.contains(&tok(t, i)) {
             let c = num(t, i + 1)?;
@@ -741,8 +752,10 @@ impl Detector {
             let r = make_ref(last.book, c.value as u16, &verse);
             return Some(Self::emit(t, i, end, r, conf, Source::Context));
         }
-        // "verse 17", "verses 3 to 5"
-        if VERSE_WORDS.contains(&tok(t, i)) {
+        // "verse 17", "verses 3 to 5". If a "chapter N" just before it was
+        // rejected above, this verse belongs to that unknown chapter too.
+        let after_rejected_chapter = (2..=3).any(|b| i >= b && CHAPTER_WORDS.contains(&tok(t, i - b)));
+        if VERSE_WORDS.contains(&tok(t, i)) && !after_rejected_chapter {
             let v = parse_verse(t, i, false)?;
             let end = v.next;
             let r = make_ref(last.book, last.chapter, &Some(v));
