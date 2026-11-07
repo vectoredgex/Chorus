@@ -43,6 +43,13 @@ const WHISPER_MODEL = join(
   "whisper",
   "ggml-large-v3-turbo-q8_0.bin"
 )
+const PARAKEET_MODEL = join(
+  PROJECT_ROOT,
+  "models",
+  "parakeet",
+  "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+  "encoder.int8.onnx"
+)
 const MODEL_ONNX = join(MODELS_DIR, "model.onnx")
 const MODEL_INT8 = join(MODELS_DIR_INT8, "model_quantized.onnx")
 
@@ -214,6 +221,12 @@ async function main() {
   console.log("\n━━━ Phase 7/7: Download Whisper model ━━━")
   if (!shouldSkip("Whisper model", WHISPER_MODEL)) {
     await run(["bun", "run", join(DATA_DIR, "download-whisper-model.ts")])
+  }
+
+  // ── Chorus: Parakeet model (default offline English engine) ────
+  console.log("\n━━━ Chorus: Download Parakeet model ━━━")
+  if (!shouldSkip("Parakeet model", PARAKEET_MODEL)) {
+    await run(["bun", "run", join(DATA_DIR, "download-parakeet-model.ts")])
   }
 
   // ── Done ───────────────────────────────────────────────────────

@@ -435,6 +435,13 @@ const CONTEXTUAL_CHAPTER_VERSE_CONFIDENCE: f64 = 0.95;
 const CONTEXTUAL_VERSE_ONLY_CONFIDENCE: f64 = 0.92;
 const CONTEXTUAL_BARE_COLON_CONFIDENCE: f64 = 0.90;
 
+/// Two bare numbers ("4 5", or Whisper's "4.5") with no book, no colon and
+/// no "chapter"/"verse" word, when they are NOT correcting a reference that
+/// was just rejected. Below the 0.80 auto-queue threshold, so the operator
+/// confirms. Live test: a mumble transcribed "4.5, Taiwan." right after
+/// "Luke chapter 5 verse 2" jumped the screen to Luke 4:5.
+const CONTEXTUAL_LOOSE_PAIR_CONFIDENCE: f64 = 0.78;
+
 /// Bare "N:M" (no "chapter"/"verse" keyword) is the riskiest contextual
 /// pattern — it can match times of day — so it only resolves against context
 /// updated within this window. Corrections ("Revelation 20:22... 22:20")
@@ -479,6 +486,21 @@ pub struct DirectDetector {
     incomplete: Option<IncompleteRef>,
     /// Recently detected verses for "previous verse" navigation (most recent first).
     recent_detections: VecDeque<VerseRef>,
+    /// Chorus reference engine: decides complete references it is sure of.
+    chorus: chorus_refparse::Detector,
+    /// Text of the previous call, to recognise partials of the same utterance.
+    chorus_prev_text: String,
+    /// Set while partials of one utterance are arriving; cleared by its final.
+    utterance_open: bool,
+    /// References from the last text that the speaker has already talked
+    /// past (see [`settled`](Self::settled)).
+    settled: Vec<(i32, i32, i32)>,
+    /// Context as it stood before the current utterance started, so relative
+    /// follow-ups ("the next verse") don't advance again on every partial.
+    chorus_snapshot: Option<chorus_refparse::Reference>,
+    /// When a non-existent reference was last heard; a bare number pair soon
+    /// after it is a correction ("Revelation 20 22 … 22 20").
+    last_rejected_at: Option<std::time::Instant>,
 }
 
 impl DirectDetector {
@@ -488,6 +510,12 @@ impl DirectDetector {
             context: ReferenceContext::new(),
             incomplete: None,
             recent_detections: VecDeque::with_capacity(5),
+            chorus: chorus_refparse::Detector::new(),
+            chorus_prev_text: String::new(),
+            utterance_open: false,
+            settled: Vec::new(),
+            chorus_snapshot: None,
+            last_rejected_at: None,
         }
     }
 
@@ -575,7 +603,157 @@ impl DirectDetector {
         })
     }
 
+    /// Detect Bible references in a transcript (partial or final).
+    ///
+    /// The Chorus engine runs first. When it finds complete references
+    /// (book, chapter and verse) that exist in the Bible, those win. Otherwise
+    /// the original detector handles the text: held chapter-only references,
+    /// streaming completions, corrections and "previous verse" commands.
     pub fn detect(&mut self, text: &str) -> Vec<Detection> {
+        let same_utterance = is_same_utterance(&self.chorus_prev_text, text);
+        self.detect_inner(text, same_utterance)
+    }
+
+    /// Like [`detect`], for callers that know which transcript is the final
+    /// one of an utterance (the app and the replay). Everything between two
+    /// finals is one utterance, however much the engine rewrites it
+    /// ("Then next source" -> "Till next shows" -> "Tell next"), so a
+    /// follow-up like "next verse" moves on exactly once. And a new
+    /// utterance always counts as new, even when it repeats the last one
+    /// word for word ("Next verse." ... "Next verse.").
+    pub fn detect_utterance(&mut self, text: &str, is_final: bool) -> Vec<Detection> {
+        // A final can be dropped when the detection queue is full; sharing
+        // no word at all with the last text means a new utterance anyway.
+        let same_utterance = self.utterance_open
+            && (is_same_utterance(&self.chorus_prev_text, text) || shares_a_word(&self.chorus_prev_text, text));
+        self.utterance_open = !is_final;
+        self.detect_inner(text, same_utterance)
+    }
+
+    fn detect_inner(&mut self, text: &str, same_utterance: bool) -> Vec<Detection> {
+        // What an earlier partial of this utterance found. If this rewrite of
+        // the utterance finds nothing ("Till next shows." -> "Tell next."),
+        // that earlier result still stands.
+        let found_so_far = self.chorus.last();
+        if same_utterance {
+            self.chorus.set_last(self.chorus_snapshot);
+        } else {
+            self.chorus_snapshot = self.chorus.last();
+        }
+        self.chorus_prev_text = text.to_string();
+
+        // "we sang verse two of the hymn" is about a song, not Scripture.
+        self.settled.clear();
+        if chorus_refparse::is_song_verse(text) {
+            return Vec::new();
+        }
+
+        let chorus_hits = self.chorus_hits(text);
+        let out = if chorus_hits.is_empty() && chorus_refparse::names_unheard_book(text) {
+            // "the book of <misheard> chapter 4 verse 3": wait for a clear
+            // repeat rather than fill in the last book (live test: Luke 4:3
+            // shown for Ezekiel 4:3).
+            Vec::new()
+        } else if chorus_hits.is_empty() {
+            self.detect_base(text)
+        } else {
+            self.incomplete = None;
+            let mut out = Vec::with_capacity(chorus_hits.len());
+            for (vr, confidence) in chorus_hits {
+                out.push(self.make_direct_detection(&vr, confidence, text, 0, text.len()));
+                self.push_recent(&vr);
+                self.context.update(&vr);
+            }
+            out
+        };
+        if let Some(d) = out.last() {
+            self.chorus.set_last(Some(to_chorus_ref(&d.verse_ref)));
+        } else if same_utterance {
+            self.chorus.set_last(found_so_far);
+        }
+        out
+    }
+
+    /// Verse-level references from the Chorus engine that really exist.
+    /// References in the last detected text that are followed by at least
+    /// two more words, as (book, chapter, verse). The speaker has moved on,
+    /// so a later partial is unlikely to change the numbers, and the partial
+    /// confirmer can show them without waiting for a second partial.
+    pub fn settled(&self) -> &[(i32, i32, i32)] {
+        &self.settled
+    }
+
+    fn chorus_hits(&mut self, text: &str) -> Vec<(VerseRef, f64)> {
+        use chorus_refparse::Confidence;
+        self.settled.clear();
+        let tokens = chorus_refparse::normalize(text);
+        let words_after = |matched: &str| -> usize {
+            let m: Vec<&str> = matched.split_whitespace().collect();
+            if m.is_empty() || m.len() > tokens.len() {
+                return 0;
+            }
+            (0..=tokens.len() - m.len())
+                .rev()
+                .find(|&p| tokens[p..p + m.len()].iter().zip(&m).all(|(a, b)| a == b))
+                .map_or(0, |p| {
+                    tokens[p + m.len()..]
+                        .iter()
+                        .filter(|w| w.chars().any(char::is_alphabetic))
+                        .count()
+                })
+        };
+        let mut settled = Vec::new();
+        let hits = self
+            .chorus
+            .detect(text)
+            .into_iter()
+            .filter(|d| d.confidence >= Confidence::Medium)
+            .filter_map(|d| {
+                let is_settled = d.confidence == Confidence::High
+                    && d.source != chorus_refparse::Source::Fuzzy
+                    && words_after(&d.matched) >= 2;
+                let r = d.reference;
+                let verse = i32::from(r.verse_start?);
+                let book_number = i32::from(r.book);
+                let chapter = i32::from(r.chapter);
+                if !is_valid_reference(book_number, chapter)
+                    || !versification::is_valid_verse(book_number, chapter, verse)
+                {
+                    return None;
+                }
+                let book_name = super::books::BOOKS
+                    .iter()
+                    .find(|b| b.number == book_number)
+                    .map_or_else(|| r.book().name.to_string(), |b| b.name.to_string());
+                let mut vr = VerseRef {
+                    book_number,
+                    book_name,
+                    chapter,
+                    verse_start: verse,
+                    verse_end: r.verse_end.map(i32::from),
+                };
+                clamp_verse_end(&mut vr);
+                // A guessed (misheard) book name stays below the auto-queue
+                // threshold, so the operator confirms it before it goes live.
+                let confidence = if d.source == chorus_refparse::Source::Fuzzy {
+                    0.75
+                } else if d.confidence == Confidence::High {
+                    1.0
+                } else {
+                    0.85
+                };
+                if is_settled {
+                    settled.push((vr.book_number, vr.chapter, vr.verse_start));
+                }
+                Some((vr, confidence))
+            })
+            .collect();
+        self.settled = settled;
+        hits
+    }
+
+    /// The original Rhema direct detector.
+    fn detect_base(&mut self, text: &str) -> Vec<Detection> {
         // Step 0: Clean filler phrases from the transcript
         let cleaned = clean_transcript(text);
         let text = &cleaned;
@@ -848,12 +1026,15 @@ impl DirectDetector {
                 verse_start: verse,
                 verse_end: None,
             };
+            let correcting = self
+                .last_rejected_at
+                .is_some_and(|t| t.elapsed().as_secs() < BARE_COLON_CONTEXT_WINDOW_SECS);
             self.push_recent(&verse_ref);
             self.context.update(&verse_ref);
             self.incomplete = None;
             return Some(self.make_direct_detection(
                 &verse_ref,
-                CONTEXTUAL_BARE_COLON_CONFIDENCE,
+                if correcting { CONTEXTUAL_BARE_COLON_CONFIDENCE } else { CONTEXTUAL_LOOSE_PAIR_CONFIDENCE },
                 text,
                 0,
                 text.len(),
@@ -939,6 +1120,7 @@ impl DirectDetector {
     /// itself is valid) as context, so a follow-up correction that omits the
     /// book name can still resolve.
     fn remember_rejected(&mut self, verse_ref: &VerseRef) {
+        self.last_rejected_at = Some(std::time::Instant::now());
         let mut ctx_ref = verse_ref.clone();
         ctx_ref.verse_start = 0;
         ctx_ref.verse_end = None;
@@ -1041,6 +1223,53 @@ impl DirectDetector {
                 inc.timestamp = ts;
             }
         }
+    }
+}
+
+/// True when the two texts have any word of three or more letters in common.
+fn shares_a_word(prev: &str, text: &str) -> bool {
+    let words = |s: &str| -> Vec<String> {
+        s.split_whitespace()
+            .map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
+            .filter(|w| w.len() >= 3)
+            .collect()
+    };
+    let a = words(prev);
+    words(text).iter().any(|w| a.contains(w))
+}
+
+/// Partials of one utterance share most of their opening text.
+fn is_same_utterance(prev: &str, text: &str) -> bool {
+    // Compare words, not characters: Parakeet re-punctuates and re-cases
+    // earlier words between partials ("Now look at" -> "Now, look at"), and
+    // a character comparison then took the growing utterance for a new one,
+    // so "the next verse" advanced again on every partial (measured in the
+    // sermon replay: John 3:17, then 3:19, then 3:21).
+    fn words(s: &str) -> Vec<String> {
+        s.split_whitespace()
+            .map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
+            .filter(|w| !w.is_empty())
+            .collect()
+    }
+    let (a, b) = (words(prev), words(text));
+    let shorter = a.len().min(b.len());
+    if shorter == 0 {
+        return false;
+    }
+    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    // Short partials ("Now look") need every word to agree.
+    if shorter < 3 {
+        return common == shorter;
+    }
+    common * 10 >= shorter * 6
+}
+
+fn to_chorus_ref(v: &VerseRef) -> chorus_refparse::Reference {
+    chorus_refparse::Reference {
+        book: u8::try_from(v.book_number).unwrap_or(1).clamp(1, 66),
+        chapter: u16::try_from(v.chapter).unwrap_or(1).max(1),
+        verse_start: u16::try_from(v.verse_start).ok().filter(|v| *v > 0),
+        verse_end: v.verse_end.and_then(|e| u16::try_from(e).ok()),
     }
 }
 
@@ -1887,6 +2116,86 @@ mod tests {
         let mut detector = DirectDetector::new();
         let results = detector.detect("Revelation 20:22");
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_repunctuated_partials_are_one_utterance() {
+        assert!(is_same_utterance(
+            "Now look at the very next verse.",
+            "Now, look at the very next verse. Paul says the same thing in Romans chapter."
+        ));
+        assert!(!is_same_utterance("Now look at the very next verse.", "And we know that all things"));
+    }
+
+    #[test]
+    fn test_next_verse_advances_once_across_partials() {
+        let mut detector = DirectDetector::new();
+        assert_eq!(detector.detect("Please open your Bibles with me to John chapter three, verse sixteen.").len(), 1);
+        detector.detect("For God so loved the world, that he gave his only Son.");
+        let mut shown = Vec::new();
+        for partial in [
+            "Now look at the very next verse.",
+            "Now, look at the very next verse. Paul says the same.",
+            "Now look at the very next verse. Paul says the same thing in Romans chapter.",
+            "Now, look at the very next verse. Paul says the same thing in Romans chapter 8.",
+        ] {
+            for d in detector.detect(partial) {
+                shown.push((d.verse_ref.chapter, d.verse_ref.verse_start));
+            }
+        }
+        assert!(shown.iter().all(|&(c, v)| c == 3 && v == 17), "{shown:?}");
+    }
+
+    #[test]
+    fn test_rewritten_partials_advance_once_and_repeats_advance_again() {
+        // Live test 2026-11-07: one "next verse" came through as
+        // "Then next source." -> "Till next shows." -> "Tell next."
+        let mut d = DirectDetector::new();
+        assert_eq!(d.detect_utterance("Romans chapter three verse six.", true).len(), 1);
+        let mut shown = Vec::new();
+        for (text, fin) in [("Then next source.", false), ("Till next shows.", false), ("Tell next.", true)] {
+            for r in d.detect_utterance(text, fin) {
+                shown.push(r.verse_ref.verse_start);
+            }
+        }
+        assert!(!shown.is_empty() && shown.iter().all(|&v| v == 7), "{shown:?}");
+        // Saying it again, word for word, is a new command.
+        let again: Vec<_> = d.detect_utterance("Next verse.", true).iter().map(|r| r.verse_ref.verse_start).collect();
+        assert_eq!(again, vec![8]);
+        let again: Vec<_> = d.detect_utterance("Next verse.", true).iter().map(|r| r.verse_ref.verse_start).collect();
+        assert_eq!(again, vec![9]);
+    }
+
+    #[test]
+    fn test_settled_only_when_speaker_moved_on() {
+        let mut d = DirectDetector::new();
+        d.detect_utterance("John chapter 3 verse 1", false);
+        assert!(d.settled().is_empty(), "number may still grow: 1 -> 16");
+        d.detect_utterance("John chapter 3 verse 16 for God so", false);
+        assert_eq!(d.settled(), &[(43, 3, 16)]);
+        d.detect_utterance("Joshua 1 9, be strong and", false);
+        assert_eq!(d.settled(), &[(6, 1, 9)]);
+    }
+
+    #[test]
+    fn test_loose_number_pair_needs_confirmation() {
+        // Live test: "Luke chapter 5 verse 2" then a mumble heard as
+        // "4.5, Taiwan." must not go straight to the screen.
+        let mut detector = DirectDetector::new();
+        assert_eq!(detector.detect("Luke chapter 5 verse 2.").len(), 1);
+        let results = detector.detect("4.5, Taiwan.");
+        if let Some(r) = results.first() {
+            assert!(r.confidence < 0.80, "auto-shown at {}", r.confidence);
+        }
+    }
+
+    #[test]
+    fn test_correction_pair_is_still_trusted() {
+        let mut detector = DirectDetector::new();
+        assert!(detector.detect("Revelation 20 22.").is_empty());
+        let results = detector.detect("22 20.");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].confidence >= 0.90);
     }
 
     #[test]

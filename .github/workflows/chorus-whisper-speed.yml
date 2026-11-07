@@ -1,0 +1,88 @@
+name: Chorus Whisper speed
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "src-tauri/crates/stt/**"
+      - ".github/workflows/chorus-whisper-speed.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-whisper-speed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  speed:
+    name: Whisper speed (large-v3-turbo, same as the app)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install speech synthesis and audio tools
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg libasound2-dev
+
+      - name: Identify CPU (whisper.cpp is built for the exact CPU)
+        id: cpu
+        run: echo "id=$(grep -m1 'model name' /proc/cpuinfo | md5sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: speed-${{ steps.cpu.outputs.id }}
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: models/whisper
+          key: whisper-large-v3-turbo-q8_0
+
+      - name: Download Whisper model (same file the app uses)
+        run: |
+          mkdir -p models/whisper
+          f=models/whisper/ggml-large-v3-turbo-q8_0.bin
+          [ -s "$f" ] || curl -L --fail --retry 3 -o "$f" \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
+          ls -la models/whisper
+
+      - name: Make spoken test clips
+        run: |
+          mkdir -p clips
+          i=0
+          while IFS= read -r line; do
+            i=$((i+1))
+            espeak-ng -s 150 -w clips/raw$i.wav "$line"
+            ffmpeg -nostdin -loglevel error -y -i clips/raw$i.wav -ar 16000 -ac 1 -sample_fmt s16 clips/clip$i.wav
+            # Room echo and background hiss, like a laptop mic in a hall.
+            ffmpeg -nostdin -loglevel error -y -i clips/clip$i.wav \
+              -f lavfi -i "anoisesrc=color=pink:amplitude=0.04:sample_rate=16000" \
+              -filter_complex "[0:a]aecho=0.8:0.5:60:0.35,lowpass=3800[v];[v][1:a]amix=inputs=2:duration=first:weights=1 0.7" \
+              -ar 16000 -ac 1 -sample_fmt s16 clips/noisy$i.wav
+            echo "clip$i: $line"
+          done <<'EOF'
+          John three sixteen
+          John chapter three verse sixteen
+          Genesis chapter two verse three
+          Romans chapter eight verse twenty eight
+          First Corinthians thirteen four
+          Turn with me to Psalm twenty three
+          Philippians four thirteen
+          So this morning we are going to look at Ephesians chapter two verses eight and nine, for by grace you have been saved through faith
+          EOF
+
+      - name: Build speed test (dev build, like bun run tauri dev)
+        working-directory: src-tauri
+        run: cargo build -p rhema-stt --features whisper --example whisper_bench
+
+      - name: Run speed test
+        working-directory: src-tauri
+        run: |
+          T=$(( $(nproc) / 2 )); [ "$T" -lt 1 ] && T=1
+          cargo run -p rhema-stt --features whisper --example whisper_bench -- \
+            ../models/whisper/ggml-large-v3-turbo-q8_0.bin $T ../clips/clip*.wav ../clips/noisy*.wav 2>/dev/null

@@ -128,7 +128,7 @@ function defaultMainOutput(): BroadcastOutput {
     monitorIndex: 0,
     // Keeps the pre-multi-output source name so upgrading users' NDI
     // receivers stay bound after the migration.
-    ndi: defaultNdiSettings("Rhema Output"),
+    ndi: defaultNdiSettings("Chorus Output"),
   }
 }
 
@@ -151,7 +151,7 @@ export function migrateLegacyOutputs(
       type: "ndi",
       themeId: altActiveThemeId,
       monitorIndex: 0,
-      ndi: defaultNdiSettings("Rhema Alt"),
+      ndi: defaultNdiSettings("Chorus Alt"),
     })
   }
   return outputs

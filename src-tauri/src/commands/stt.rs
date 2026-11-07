@@ -126,6 +126,51 @@ pub async fn start_transcription(
                 n_threads,
             ))
         }
+        #[cfg(feature = "parakeet")]
+        "parakeet" => {
+            // Dev: {CARGO_MANIFEST_DIR}/../models/parakeet/<model>/
+            // Prod: resource_dir()/models/parakeet/<model>/
+            let model_dir = {
+                let dev_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("models")
+                    .join("parakeet")
+                    .join(rhema_stt::parakeet::MODEL_DIR_NAME);
+                if rhema_stt::parakeet::model_present(&dev_dir) {
+                    dev_dir
+                } else {
+                    app.path()
+                        .resource_dir()
+                        .map(|p| {
+                            p.join("models")
+                                .join("parakeet")
+                                .join(rhema_stt::parakeet::MODEL_DIR_NAME)
+                        })
+                        .ok()
+                        .filter(|p| rhema_stt::parakeet::model_present(p))
+                        .ok_or_else(|| {
+                            "Parakeet model not found. Run: bun run download:parakeet".to_string()
+                        })?
+                }
+            };
+
+            let parallelism = std::thread::available_parallelism()
+                .map_or(4, usize::from);
+            let n_threads = i32::try_from(parallelism / 2).unwrap_or(2).max(1);
+
+            log::info!(
+                "Starting Parakeet transcription: model={}, threads={n_threads}, device_id={device_id:?}",
+                model_dir.display()
+            );
+
+            Box::new(rhema_stt::ParakeetProvider::new(model_dir, n_threads))
+        }
+        #[cfg(not(feature = "parakeet"))]
+        "parakeet" => {
+            return Err(
+                "Parakeet support not compiled. Rebuild with --features parakeet".into(),
+            );
+        }
         #[cfg(not(feature = "whisper"))]
         "whisper" => {
             return Err(
@@ -360,24 +405,18 @@ pub async fn start_transcription(
     // speaker keeps talking), and the entire post-final pipeline is ~50ms —
     // so finals-only detection made spoken references feel 3-5s slow. Direct
     // detection is ~1-3ms, cheap enough for every changed partial. Reading
-    // mode and the FTS pass stay finals-only. Identical repeated partials
-    // (Deepgram re-emits the same text ~1/s while audio continues) are
-    // skipped.
+    // mode and the FTS pass stay finals-only.
     //
     // Uses spawn_blocking so mutex locks and DB I/O don't starve the tokio
     // runtime (WebSocket readers, event emitters, etc.).
     let det_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut last_partial = String::new();
+        // Identical repeated partials are NOT skipped any more: the partial
+        // confirmer needs a second partial that reads the reference the same
+        // way, and an identical one is exactly that. Skipping it made the
+        // verse wait for the final (live test: Exodus 2:3 took 2 s instead of
+        // ~0.7 s). Direct detection is cheap enough to run on every partial.
         while let Some((transcript, is_final)) = detect_rx.recv().await {
-            if is_final {
-                last_partial.clear();
-            } else {
-                if transcript == last_partial {
-                    continue;
-                }
-                last_partial = transcript.clone();
-            }
             let app_clone = det_app.clone();
             let _ = tokio::task::spawn_blocking(move || {
                 log::info!(
@@ -385,7 +424,7 @@ pub async fn start_transcription(
                     epoch_ms(),
                     truncate_safe(&transcript, 40)
                 );
-                let direct_found = run_direct_detection(&app_clone, &transcript);
+                let direct_found = run_direct_detection(&app_clone, &transcript, is_final);
                 if !is_final {
                     return;
                 }
@@ -514,7 +553,12 @@ pub async fn start_transcription(
 /// never blocks on the semantic worker, and cooldown state persists across calls.
 /// Returns true if high-confidence results were found (>= 0.90).
 #[expect(clippy::similar_names, reason = "merger and merged are naturally named")]
-fn run_direct_detection(app: &AppHandle, transcript: &str) -> bool {
+/// Holds back references from partial transcripts until a second partial
+/// agrees (see `PartialConfirmer`).
+static PARTIAL_CONFIRMER: Mutex<rhema_detection::PartialConfirmer> =
+    Mutex::new(rhema_detection::PartialConfirmer::new());
+
+fn run_direct_detection(app: &AppHandle, transcript: &str, is_final: bool) -> bool {
     use rhema_detection::{DirectDetector, DetectionMerger};
 
     let t0 = std::time::Instant::now();
@@ -526,8 +570,13 @@ fn run_direct_detection(app: &AppHandle, transcript: &str) -> bool {
             return false;
         }
     };
-    let direct_results = detector.detect(transcript);
+    let direct_results = detector.detect_utterance(transcript, is_final);
+    let settled = detector.settled().to_vec();
     drop(detector); // Release immediately
+    let direct_results = match PARTIAL_CONFIRMER.lock() {
+        Ok(mut c) => c.filter_settled(direct_results, is_final, &settled),
+        Err(_) => direct_results,
+    };
 
     if direct_results.is_empty() {
         return false;
@@ -600,6 +649,12 @@ fn run_direct_detection(app: &AppHandle, transcript: &str) -> bool {
         results.first().map_or("", |r| r.verse_ref.as_str())
     );
     let _ = app.emit("verse_detections", &results);
+    // Tell Whisper which passage the sermon is on, so follow-ups
+    // ("verse twenty nine") are heard correctly.
+    #[cfg(feature = "whisper")]
+    if let Some(r) = results.first() {
+        rhema_stt::whisper::set_context_hint(&r.verse_ref);
+    }
     log::info!("[DET-DIRECT] Detection took {:?} for {:?}", t0.elapsed(), truncate_safe(transcript, 50));
     has_high_confidence
 }
@@ -607,8 +662,18 @@ fn run_direct_detection(app: &AppHandle, transcript: &str) -> bool {
 /// Run FTS5-only detection. ONNX/vector pipeline is skipped for speed.
 /// FTS5 phrase match finds exact scripture quotes; direct detection handles
 /// verse references; ONNX can be re-enabled later with parallelized vector search.
+/// Fewest words a sentence needs before Chorus looks for it as a quoted
+/// verse. Short sentences ("Okay", "No", "Send love") match dozens of
+/// verses by chance; in the owner's live test every such guess was noise.
+const QUOTE_MIN_WORDS: usize = 5;
+
 fn run_semantic_detection(app: &AppHandle, transcript: &str) {
     let t0 = std::time::Instant::now();
+    let words = transcript.split_whitespace().filter(|w| w.chars().any(char::is_alphanumeric)).count();
+    if words < QUOTE_MIN_WORDS {
+        log::info!("[DET-SEMANTIC] Skipped — only {words} words");
+        return;
+    }
     log::info!("[DET-SEMANTIC] Running on: {:?}", truncate_safe(transcript, 80));
 
     // FTS5 BM25 phrase search (~5ms)
@@ -627,8 +692,11 @@ fn run_semantic_detection(app: &AppHandle, transcript: &str) {
         log::info!("[DET-SEMANTIC] No FTS5 results");
         return;
     };
+    // Only verses that contain the spoken words as an exact phrase: the
+    // looser "some of these words" matches were random verses in live use.
+    let fts: Vec<_> = fts.into_iter().filter(|hit| hit.phrase_match).collect();
     if fts.is_empty() {
-        log::info!("[DET-SEMANTIC] No FTS5 results");
+        log::info!("[DET-SEMANTIC] No exact quote found");
         return;
     }
 

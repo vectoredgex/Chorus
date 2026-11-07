@@ -1,0 +1,129 @@
+name: Chorus replay
+
+# Plays a whole test sermon through the real Chorus pipeline (speech
+# detection, Whisper large-v3-turbo, detector) at real-time speed and scores
+# the verses it shows. CPU only: GitHub's machines have no graphics card.
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "src-tauri/crates/stt/**"
+      - "src-tauri/crates/audio/**"
+      - "src-tauri/crates/detection/**"
+      - "src-tauri/crates/chorus-refparse/**"
+      - "src-tauri/crates/replay/**"
+      - "src-tauri/Cargo.lock"
+      - "scripts/chorus/**"
+      - ".github/workflows/chorus-replay.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  replay:
+    name: Sermon replay (${{ matrix.voice }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        voice: [natural, robot]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install audio tools
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg libasound2-dev
+
+      - name: Install natural voice (Piper)
+        if: matrix.voice == 'natural'
+        continue-on-error: true
+        id: piper
+        run: |
+          pip install --quiet piper-tts
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high
+          curl -L --fail --retry 3 -o ryan.onnx "$base/en_US-ryan-high.onnx"
+          curl -L --fail --retry 3 -o ryan.onnx.json "$base/en_US-ryan-high.onnx.json"
+          echo "model=$PWD/ryan.onnx" >> "$GITHUB_OUTPUT"
+
+      - name: Identify CPU (whisper.cpp is built for the exact CPU)
+        id: cpu
+        run: echo "id=$(grep -m1 'model name' /proc/cpuinfo | md5sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: replay-${{ steps.cpu.outputs.id }}
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/whisper
+            models/parakeet
+          key: whisper-large-v3-turbo-q8_0-parakeet-v2-int8
+
+      - name: Download Whisper model (same file the app uses)
+        run: |
+          mkdir -p models/whisper
+          f=models/whisper/ggml-large-v3-turbo-q8_0.bin
+          [ -s "$f" ] || curl -L --fail --retry 3 -o "$f" \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
+
+      - name: Download Parakeet model
+        run: |
+          mkdir -p models/parakeet
+          p=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          if [ ! -s "$p/encoder.int8.onnx" ]; then
+            curl -L --fail --retry 3 -o pk.tar.bz2 \
+              https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+            tar xjf pk.tar.bz2 -C models/parakeet && rm pk.tar.bz2
+          fi
+
+      - name: Make test sermon
+        run: python3 scripts/chorus/make-sermon.py sermon ${{ steps.piper.outputs.model }}
+
+      - name: Fresh sherpa-onnx download (cached builds can lose its libraries)
+        shell: bash
+        run: rm -rf src-tauri/target/sherpa-onnx-prebuilt src-tauri/target/*/build/sherpa-onnx-sys-*
+
+      - name: Build replay
+        working-directory: src-tauri
+        run: cargo build -p chorus-replay
+
+      - name: Find sherpa-onnx shared libraries
+        run: |
+          d=$(dirname "$(find src-tauri/target -name 'libsherpa-onnx-c-api.so' | head -1)")
+          echo "sherpa-onnx libs: $d"; ls "$d"
+          echo "LD_LIBRARY_PATH=$PWD/$d" >> "$GITHUB_ENV"
+
+      - name: Replay (clear speech)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/whisper/ggml-large-v3-turbo-q8_0.bin $(nproc) \
+            ../sermon/sermon_clean.wav ../sermon/expected.txt 2>/dev/null
+
+      - name: Replay (echo and background noise)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/whisper/ggml-large-v3-turbo-q8_0.bin $(nproc) \
+            ../sermon/sermon_noisy.wav ../sermon/expected.txt 2>/dev/null
+
+      - name: Replay with Parakeet (clear speech)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 $(nproc) \
+            ../sermon/sermon_clean.wav ../sermon/expected.txt 2>/dev/null
+
+      - name: Replay with Parakeet (echo and background noise)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 $(nproc) \
+            ../sermon/sermon_noisy.wav ../sermon/expected.txt 2>/dev/null

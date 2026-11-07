@@ -1,0 +1,104 @@
+name: Chorus tests
+
+on:
+  push:
+    branches: ["main", "chorus/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile:
+    name: Lock file is up to date
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # If this fails, Cargo would rewrite Cargo.lock on every PC that
+      # builds Chorus, and git pull would then refuse to update.
+      - name: Check Cargo.lock
+        working-directory: src-tauri
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+  detection:
+    name: Detection accuracy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Chorus reference engine tests
+        working-directory: src-tauri
+        run: cargo test -p chorus-refparse -- --nocapture
+
+      - name: Accuracy benchmark (sermon phrase set)
+        working-directory: src-tauri
+        run: cargo test -p rhema-detection --test chorus_benchmark -- --nocapture
+        env:
+          # Fail the build if accuracy drops below 99%.
+          CHORUS_BENCH_MIN: "0.99"
+
+      - name: Existing detection unit tests
+        working-directory: src-tauri
+        run: cargo test -p rhema-detection --lib
+
+  frontend:
+    name: Interface tests and type check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun run typecheck
+
+      - name: Interface tests
+        run: bunx vitest run
+
+  app:
+    name: Full app compiles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libssl-dev \
+            libasound2-dev libudev-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Placeholders for build-time assets; this job only checks that the
+      # code compiles, it does not produce an installer.
+      - name: Placeholder assets
+        run: mkdir -p build && touch data/rhema.db
+
+      - name: Compile the desktop app
+        working-directory: src-tauri
+        run: cargo check --all-targets --locked

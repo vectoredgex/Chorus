@@ -24,6 +24,7 @@ pub mod merger;
 pub mod pipeline;
 pub mod sentence_buffer;
 pub mod reading_mode;
+pub mod partial_confirm;
 
 pub use types::*;
 pub use error::*;
@@ -33,6 +34,7 @@ pub use merger::{DetectionMerger, MergedDetection};
 pub use pipeline::DetectionPipeline;
 pub use sentence_buffer::SentenceBuffer;
 pub use reading_mode::{ReadingMode, ReadingAdvance, ChapterChange};
+pub use partial_confirm::PartialConfirmer;
 
 #[cfg(feature = "onnx")]
 pub use semantic::onnx_embedder::OnnxEmbedder;

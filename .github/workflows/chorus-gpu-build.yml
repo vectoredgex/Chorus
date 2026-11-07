@@ -1,0 +1,71 @@
+name: Chorus GPU builds
+
+# GitHub's machines have no graphics card, so this only proves the GPU
+# versions of Whisper compile; speed is measured on a real PC.
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "src-tauri/crates/stt/**"
+      - "src-tauri/Cargo.toml"
+      - ".github/workflows/chorus-gpu-build.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-gpu-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cuda:
+    name: NVIDIA (CUDA) build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    # NVIDIA's official image already contains the full CUDA Toolkit.
+    container: nvidia/cuda:12.8.0-devel-ubuntu24.04
+    steps:
+      - name: Install build tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update -o Acquire::Retries=3
+          apt-get install -y -o Acquire::Retries=3 git curl build-essential cmake clang libclang-dev pkg-config libasound2-dev libssl-dev
+
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: cuda
+
+      - name: Build Whisper with CUDA
+        working-directory: src-tauri
+        env:
+          # Compile kernels for the MX550 generation only (Turing, sm_75).
+          CUDAARCHS: "75"
+        run: cargo build -p rhema-stt --features cuda
+
+  vulkan:
+    name: Vulkan build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Vulkan SDK pieces
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 libvulkan-dev glslc spirv-headers libasound2-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: vulkan
+
+      - name: Build Whisper with Vulkan
+        working-directory: src-tauri
+        run: cargo build -p rhema-stt --features vulkan

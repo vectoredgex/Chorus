@@ -1,0 +1,327 @@
+# Chorus English reference test set.
+#
+# Format:  spoken text  =>  expected
+#   expected: one or more references separated by " | ", or NONE
+#   optional confidence tag after a reference: [H] high, [M] medium, [L] low
+#   NONE means nothing at medium confidence or above.
+#   Lines in the same block (no blank line between) share context, like
+#   one sermon. A blank line starts a fresh detector.
+
+# --- Written citations ---------------------------------------------------
+John 3:16 => John 3:16 [H]
+Romans 8:28 => Romans 8:28 [H]
+Genesis 1:1 => Genesis 1:1 [H]
+Psalm 23:1 => Psalms 23:1 [H]
+Philippians 4:13 => Philippians 4:13 [H]
+Jeremiah 29:11 => Jeremiah 29:11 [H]
+Proverbs 3:5-6 => Proverbs 3:5-6 [H]
+Isaiah 40:31 => Isaiah 40:31 [H]
+Matthew 28:19-20 => Matthew 28:19-20 [H]
+Hebrews 11:1 => Hebrews 11:1 [H]
+Ephesians 2:8–9 => Ephesians 2:8-9 [H]
+Revelation 21:4 => Revelation 21:4 [H]
+1 Corinthians 13:4-7 => 1 Corinthians 13:4-7 [H]
+2 Timothy 3:16 => 2 Timothy 3:16 [H]
+1 John 1:9 => 1 John 1:9 [H]
+2 Chronicles 7:14 => 2 Chronicles 7:14 [H]
+Psalm 119:105 => Psalms 119:105 [H]
+John 3.16 => John 3:16 [H]
+Rom 12:2 => Romans 12:2 [H]
+Matt 6:33 => Matthew 6:33 [H]
+1 Cor 10:13 => 1 Corinthians 10:13 [H]
+Gal 5:22-23 => Galatians 5:22-23 [H]
+
+# --- Spoken with numbers as words ---------------------------------------
+John three sixteen => John 3:16 [H]
+Romans eight twenty eight => Romans 8:28 [H]
+Genesis one one => Genesis 1:1 [H]
+Genesis one twenty six => Genesis 1:26 [H]
+Matthew twenty eight nineteen => Matthew 28:19 [H]
+Psalm one hundred and nineteen verse one hundred and five => Psalms 119:105 [H]
+Psalm a hundred and twenty one => Psalms 121 [M]
+Isaiah fifty three five => Isaiah 53:5 [H]
+Lamentations three twenty two => Lamentations 3:22 [H]
+
+# --- Chapter / verse words -----------------------------------------------
+John chapter three verse sixteen => John 3:16 [H]
+Romans chapter 8 verse 28 => Romans 8:28 [H]
+turn with me to Romans chapter eight verse twenty eight => Romans 8:28 [H]
+open your Bibles to Isaiah chapter 6 verse 8 => Isaiah 6:8 [H]
+Ephesians chapter two verses eight and nine => Ephesians 2:8-9 [H]
+Romans chapter eight verses twenty eight through thirty => Romans 8:28-30 [H]
+Matthew chapter five verses three to twelve => Matthew 5:3-12 [H]
+Psalm 91 verses 1 to 4 => Psalms 91:1-4 [H]
+Hebrews chapter 12 verse 1 and 2 => Hebrews 12:1-2 [H]
+James chapter one verse five => James 1:5 [H]
+Romans 8 at verse 28 => Romans 8:28 [H]
+in Acts chapter two at verse thirty eight => Acts 2:38 [H]
+Philippians four verse thirteen => Philippians 4:13 [H]
+Mark chapter 16 verse 15 => Mark 16:15 [H]
+Luke chapter fifteen => Luke 15 [M]
+Romans chapter twelve => Romans 12 [M]
+Psalm 23 => Psalms 23 [M]
+Isaiah 53 => Isaiah 53 [M]
+
+# --- Numbered books -------------------------------------------------------
+first Corinthians thirteen four => 1 Corinthians 13:4 [H]
+second Corinthians five seventeen => 2 Corinthians 5:17 [H]
+first John one nine => 1 John 1:9 [H]
+first John chapter four verse eight => 1 John 4:8 [H]
+second Timothy chapter three verse sixteen => 2 Timothy 3:16 [H]
+first Peter five seven => 1 Peter 5:7 [H]
+second Peter three nine => 2 Peter 3:9 [H]
+first Thessalonians five sixteen through eighteen => 1 Thessalonians 5:16-18 [H]
+second Thessalonians three three => 2 Thessalonians 3:3 [H]
+first Samuel sixteen seven => 1 Samuel 16:7 [H]
+second Samuel chapter eleven => 2 Samuel 11 [M]
+first Kings eighteen => 1 Kings 18 [M]
+second Kings chapter five verse fourteen => 2 Kings 5:14 [H]
+first Chronicles four ten => 1 Chronicles 4:10 [H]
+second Chronicles seven fourteen => 2 Chronicles 7:14 [H]
+1st Timothy 6:10 => 1 Timothy 6:10 [H]
+2nd Corinthians 12:9 => 2 Corinthians 12:9 [H]
+one Corinthians thirteen thirteen => 1 Corinthians 13:13 [H]
+two Timothy one seven => 2 Timothy 1:7 [H]
+third John verse two => 3 John 1:2 [H]
+3 John 4 => 3 John 1:4 [H]
+second John verse six => 2 John 1:6 [H]
+
+# --- One-chapter books ----------------------------------------------------
+Jude verse 24 => Jude 1:24 [H]
+Jude 24 => Jude 1:24
+Philemon verse 6 => Philemon 1:6 [H]
+Obadiah 1:15 => Obadiah 1:15 [H]
+Obadiah verse fifteen => Obadiah 1:15 [H]
+
+# --- "of" forms -------------------------------------------------------------
+the third chapter of John => John 3 [M]
+the third chapter of John verse sixteen => John 3:16 [H]
+chapter 13 of first Corinthians => 1 Corinthians 13 [M]
+in chapter eight of Romans => Romans 8 [M]
+the eleventh chapter of Hebrews => Hebrews 11 [M]
+the fifth chapter of the gospel of Matthew => Matthew 5 [M]
+verse sixteen of John three => John 3:16 [H]
+verse 28 of Romans chapter 8 => Romans 8:28 [H]
+the twenty third psalm => Psalms 23 [H]
+the 23rd psalm => Psalms 23 [H]
+the hundred and nineteenth psalm => Psalms 119 [H]
+the first psalm => Psalms 1 [H]
+
+# --- Book name variants -----------------------------------------------------
+John's gospel chapter three => John 3 [M]
+the gospel of John chapter 14 verse 6 => John 14:6 [H]
+the gospel according to Luke chapter 2 verse 10 => Luke 2:10 [H]
+the book of Acts chapter one verse eight => Acts 1:8 [H]
+Acts of the Apostles chapter 2 => Acts 2 [M]
+Revelations three twenty => Revelation 3:20 [H]
+the book of Revelation chapter twenty two => Revelation 22 [M]
+Psalms 46:10 => Psalms 46:10 [H]
+Song of Solomon 2:4 => Song of Solomon 2:4 [H]
+Song of Songs chapter 8 verse 6 => Song of Solomon 8:6 [H]
+Ecclesiastes 3:1 => Ecclesiastes 3:1 [H]
+Habakkuk two three => Habakkuk 2:3 [H]
+Zechariah four six => Zechariah 4:6 [H]
+Malachi three ten => Malachi 3:10 [H]
+Micah six eight => Micah 6:8 [H]
+Nahum one seven => Nahum 1:7 [H]
+Zephaniah three seventeen => Zephaniah 3:17 [H]
+Haggai two nine => Haggai 2:9 [H]
+Joel two twenty eight => Joel 2:28 [H]
+Amos five twenty four => Amos 5:24 [H]
+Hosea six six => Hosea 6:6 [H]
+Jonah chapter two => Jonah 2 [M]
+Daniel three seventeen => Daniel 3:17 [H]
+Ezekiel thirty seven => Ezekiel 37 [M]
+Nehemiah eight ten => Nehemiah 8:10 [H]
+Esther four fourteen => Esther 4:14 [H]
+Job nineteen twenty five => Job 19:25 [H]
+Ruth one sixteen => Ruth 1:16 [H]
+Joshua one nine => Joshua 1:9 [H]
+Judges six twelve => Judges 6:12 [H]
+Deuteronomy thirty one six => Deuteronomy 31:6 [H]
+Numbers six twenty four => Numbers 6:24 [H]
+Leviticus nineteen eighteen => Leviticus 19:18 [H]
+Exodus fourteen fourteen => Exodus 14:14 [H]
+Titus two eleven => Titus 2:11 [H]
+Colossians three twenty three => Colossians 3:23 [H]
+Galatians two twenty => Galatians 2:20 [H]
+Ephesians six ten => Ephesians 6:10 [H]
+Luke one thirty seven => Luke 1:37 [H]
+
+# --- Common speech-to-text mishearings ------------------------------------
+Philippines four thirteen => Philippians 4:13 [H]
+Phillipians 4:6 => Philippians 4:6 [H]
+Mathew 11:28 => Matthew 11:28 [H]
+Ezekial 36:26 => Ezekiel 36:26 [H]
+Zachariah 4:6 => Zechariah 4:6 [H]
+Ecclesiastics 12:13 => Ecclesiastes 12:13 [H]
+Habakuk 3:17 => Habakkuk 3:17 [H]
+Isiah 41:10 => Isaiah 41:10 [H]
+
+# --- Should NOT trigger -----------------------------------------------------
+God so loved the world => NONE
+mark my words this is important => NONE
+my job is to preach the word => NONE
+the acts of the early church => NONE
+James and John were brothers => NONE
+John said to them follow me => NONE
+in the beginning was the word => NONE
+the numbers don't lie => NONE
+we read from the book of Romans => NONE
+I want to say three things today => NONE
+first of all let us pray => NONE
+Daniel was a man of prayer => NONE
+the revelation of God's love => NONE
+he gave his first sermon at twenty five => NONE
+Peter denied him three times => NONE
+Ruth was loyal => NONE
+we sang verse two of the hymn => NONE
+mark three things in your notes => NONE
+Luke was a doctor and wrote two books => NONE
+
+# --- Two references in one sentence ---------------------------------------
+compare John 3:16 with Romans 5:8 => John 3:16 | Romans 5:8
+Romans 3:23 and Romans 6:23 => Romans 3:23 | Romans 6:23
+from Genesis 1:1 all the way to Revelation 22:21 => Genesis 1:1 | Revelation 22:21
+
+# --- Invalid chapters are rejected ---------------------------------------
+John 22:1 => NONE
+Jude 2:1 => NONE
+Psalm 151 => NONE
+Philemon chapter 2 => NONE
+
+# --- Follow-ups within a sermon (shared context) --------------------------
+let's read Romans chapter 8 => Romans 8 [M]
+look at verse 28 => Romans 8:28 [M]
+and the next verse says => Romans 8:29 [M]
+now down to verses 38 and 39 => Romans 8:38-39 [M]
+
+turn to Psalm 23 => Psalms 23 [M]
+verse four says => Psalms 23:4 [M]
+and in verse 6 => Psalms 23:6 [M]
+
+John 3:16 => John 3:16 [H]
+look at the very next verse => John 3:17 [M]
+in chapter four verse twenty four => John 4:24 [M]
+
+# A low-confidence mention must not become context for follow-ups.
+Matthew 5 => Matthew 5 [L]
+the first verse => NONE
+
+Matthew chapter 5 => Matthew 5 [M]
+the first verse => Matthew 5:1 [M]
+
+Isaiah 53:5 => Isaiah 53:5 [H]
+first Peter 2:24 quotes it => 1 Peter 2:24 [H]
+verse 25 => 1 Peter 2:25 [M]
+
+# --- No context yet: follow-ups don't fire -------------------------------
+look at verse 28 => NONE
+the next verse => NONE
+
+# --- Unseen-phrase probe (messy real-world speech) -------------------------
+So this morning we're going to be in John, John chapter 10, verse 10. => John 10:10 [H]
+The thief comes only to steal and kill. Look at verse eleven. => John 10:11 [M]
+
+uh, turn with me if you will to, um, Second Corinthians, chapter five, verse seventeen. => 2 Corinthians 5:17 [H]
+Romans eight, twenty-eight to thirty-nine => Romans 8:28-39 [H]
+in Galatians 5 22 we see the fruit => Galatians 5:22 [H]
+I've got three points and twenty minutes => NONE
+Paul writes in Romans that all have sinned => NONE
+John 1:1-14 is the prologue => John 1:1-14 [H]
+Psalm 23 verse 1 the Lord is my shepherd => Psalms 23:1 [H]
+first Corinthians 13 verse 4 through 8a => 1 Corinthians 13:4-8 [H]
+he was 33 years old when he died => NONE
+Matthew 6 33 seek ye first => Matthew 6:33 [H]
+Proverbs three five and six => Proverbs 3:5-6 [H]
+Hebrews eleven one now faith is => Hebrews 11:1 [H]
+read Isaiah 9 6 and 7 for Christmas => Isaiah 9:6-7 [H]
+the prodigal son in Luke fifteen eleven through thirty two => Luke 15:11-32 [H]
+remember Joshua 24 15 as for me and my house => Joshua 24:15 [H]
+2 Kings 2:9 a double portion => 2 Kings 2:9 [H]
+when Jesus said in John 14 6 I am the way => John 14:6 [H]
+there were 5000 people fed => NONE
+in the year 2024 we grew by 30 percent => NONE
+Acts 2 verses 1 through 4 Pentecost => Acts 2:1-4 [H]
+Jeremiah twenty nine eleven for I know the plans => Jeremiah 29:11 [H]
+James one two count it all joy => James 1:2 [H]
+Micah six eight act justly => Micah 6:8 [H]
+Revelation 3 20 behold I stand at the door => Revelation 3:20 [H]
+he read from Isaiah the scroll => NONE
+John the Baptist preached repentance => NONE
+first John four nineteen we love because he first loved us => 1 John 4:19 [H]
+Ephesians 6 verses 10 to 18 the armor of God => Ephesians 6:10-18 [H]
+
+# --- Speech engine splits one chapter into digit groups (seen live) --------
+Psalm 1 36 verse 1. => Psalms 136:1 [H]
+Psalm 2 3 verse 4 => Psalms 23:4 [H]
+David in Psalm 1 1 2 verse one now says => Psalms 112:1 [H]
+Psalm 1 19 verse 105 => Psalms 119:105 [H]
+John 3 16 => John 3:16 [H]
+
+# --- Whisper transcription slips (measured with a sized encoder window) ---
+Philippians for 13. => Philippians 4:13 [H]
+So this morning we are going to look at Ephemians chapter 2 verses 8 and 9, for by grace you have been saved through faith. => Ephesians 2:8-9 [H]
+For God so loved the world => NONE
+John 3 for God so loved the world => John 3 [L]
+
+# --- Misheard book names, matched because a full reference follows -----------
+Geddes' chapter 2 verse 3. => Genesis 2:3 [M]
+Galations 5:22 => Galatians 5:22 [M]
+Revolution chapter 21 verse 4 => Revelation 21:4 [M]
+Jermiah 29:11 => Jeremiah 29:11 [M]
+Hebroos chapter 11 verse 1 => Hebrews 11:1 [M]
+Thesalonians 5:17 => 1 Thessalonians 5:17 [M]
+Exedus chapter 14 verse 14 => Exodus 14:14 [M]
+
+# not references (a fresh sermon, so no earlier book gives "8:28" context): no verse, everyday words, or too far from any book
+romantic 8:28 => NONE
+the matters 3:16 => NONE
+Geddes chapter 2 => NONE
+Delibians 4.13 => NONE
+I went home at 5:30 => NONE
+
+# --- Lists of references (the number before a book is part of its name) -----
+Revelation 21, 2 Corinthians 13 => Revelation 21 [M] | 2 Corinthians 13 [M]
+Romans 8:28, 2 Corinthians 5:17 and 1 John 1:9 => Romans 8:28 [H] | 2 Corinthians 5:17 [H] | 1 John 1:9 [H]
+read John 3 16 and 1 John 4 8 => John 3:16 [H] | 1 John 4:8 [H]
+Psalm 23, 1 Kings 18 => Psalms 23 [M] | 1 Kings 18 [M]
+John 3, 16 => John 3:16 [H]
+
+# --- "verse" misheard in noise, between a chapter and a number --------------
+Ephesians 2, Mercer 8 and 9. => Ephesians 2:8-9 [H]
+Romans 8 worse 28 => Romans 8:28 [H]
+John 3 were 16 people => John 3 [L]
+
+# --- Parakeet writes the chapter-verse break as a dash (measured) -----------
+Jeremiah 29-11 tells us that God has plans for us. => Jeremiah 29:11 [H]
+Joshua 1-9. Be strong and courageous. => Joshua 1:9 [H]
+Joshua 1-9, be strong and courageous. => Joshua 1:9 [H]
+Let us turn to 1 Corinthians 13, verses 4-7. => 1 Corinthians 13:4-7 [H]
+Ephesians 2, verses 8 and 9. => Ephesians 2:8-9 [H]
+Romans 8-28 to 30 => Romans 8:28-30 [H]
+Read chapters 1-3 of Genesis => NONE
+
+# A misheard chapter must not send a follow-up to the previous book (measured)
+Paul says the same thing in Romans chapter eight, verse twenty eight. => Romans 8:28
+Let us turn to 1 Corinthians 30, verses 4 to 7. => NONE
+
+# --- Live test 2026-11-07: "Ezekiel" heard as "this" ------------------------
+Luke chapter three verse four => Luke 3:4 [H]
+and then we can turn into the book of this chapter 4, verse 3. => NONE
+and then we can turn to the book of Ezekiel chapter 4, verse 3. => Ezekiel 4:3 [H]
+now chapter 5 verse 2 => Ezekiel 5:2 [M]
+
+# --- Parakeet replay misses (robot voice) -------------------------------------
+Please open your Bibles with me to John chapter 3, verse 16. => John 3:16 [H]
+Now look at the Merry Next Merse. => John 3:17 [M]
+
+Doshu 1-9, be strong and courageous. => Joshua 1:9 [M]
+we spent 1-9 hours on it => NONE
+
+# --- Live test 2026-11-07: "next verse" heard badly ---------------------------
+Romans chapter three verse six => Romans 3:6 [H]
+Then next source. => Romans 3:7 [M]
+Next was => Romans 3:8 [M]
+Till next shows. => Romans 3:9 [M]
+the next ones were better than the first ones I think => NONE

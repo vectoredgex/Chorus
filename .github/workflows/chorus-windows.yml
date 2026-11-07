@@ -1,0 +1,61 @@
+name: Chorus Windows build
+
+# The owner runs Chorus on Windows. Builds the speech crate with Whisper and
+# Parakeet on a Windows machine (MSVC), and runs Parakeet on a clip to prove
+# the downloaded sherpa-onnx / onnxruntime libraries link and work there.
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "src-tauri/crates/stt/**"
+      - "src-tauri/Cargo.lock"
+      - ".github/workflows/chorus-windows.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: chorus-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: windows-stt
+
+      - name: Fresh sherpa-onnx download (cached builds can lose its libraries)
+        shell: bash
+        run: rm -rf src-tauri/target/sherpa-onnx-prebuilt src-tauri/target/*/build/sherpa-onnx-sys-*
+
+      - name: Build speech crate with Parakeet (release)
+        working-directory: src-tauri
+        shell: bash
+        run: cargo build --release --locked -p rhema-stt --features parakeet --example parakeet_lines
+
+      - name: Where the sherpa-onnx DLLs were put
+        shell: bash
+        run: find src-tauri/target/release -maxdepth 3 -iname '*.dll' | grep -iv "/deps/build" | head -20
+
+      - name: Download Parakeet model and a test clip
+        shell: bash
+        run: |
+          mkdir -p models/parakeet
+          curl -L --fail --retry 3 -o pk.tar.bz2 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+          tar -xjf pk.tar.bz2 -C models/parakeet
+          ls models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          ls models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/test_wavs || true
+
+      - name: Run Parakeet on Windows
+        shell: bash
+        run: |
+          d=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          clip=$(ls $d/test_wavs/*.wav | head -1)
+          src-tauri/target/release/examples/parakeet_lines.exe $d 4 "$clip" | tee out.txt
+          test -s out.txt

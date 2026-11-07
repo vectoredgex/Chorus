@@ -47,6 +47,7 @@ import {
 import { LevelMeter } from "@/components/ui/level-meter"
 import { useAudioTest } from "@/hooks/use-audio-test"
 import { useSettingsStore } from "@/stores"
+import type { SttProvider } from "@/stores/settings-store"
 import { useTranscriptStore } from "@/stores/transcript-store"
 import { useTutorialStore } from "@/stores/tutorial-store"
 import { useSettingsDialogStore } from "@/lib/settings-dialog"
@@ -272,7 +273,7 @@ function SpeechSection() {
 
         <RadioGroup
           value={sttProvider}
-          onValueChange={(v) => setSttProvider(v as "deepgram" | "whisper")}
+          onValueChange={(v) => setSttProvider(v as SttProvider)}
           className="gap-3"
         >
           {/* Deepgram (cloud) */}
@@ -290,6 +291,25 @@ function SpeechSection() {
                 Uses Deepgram Nova-3 for real-time streaming transcription.
                 Requires an API key and internet connection. Best accuracy with
                 keyword boosting for Bible terms.
+              </p>
+            </div>
+          </label>
+
+          {/* Parakeet (local, Chorus default) */}
+          <label
+            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-data-[state=checked]:border-primary/50 has-data-[state=checked]:bg-primary/5 has-data-[state=checked]:ring-1 has-data-[state=checked]:ring-primary/20 ${
+              sttProvider !== "parakeet" ? "hover:border-muted-foreground/25" : ""
+            }`}
+          >
+            <RadioGroupItem value="parakeet" className="mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-foreground">
+                Local (Parakeet) — recommended for English
+              </span>
+              <p className="text-[0.625rem] leading-relaxed text-muted-foreground">
+                Runs NVIDIA Parakeet locally on your processor. Fully offline,
+                no graphics card needed, and many times faster than Whisper.
+                English only.
               </p>
             </div>
           </label>
@@ -473,8 +493,8 @@ function ApiKeysSection() {
           )}
         </div>
         <p className="text-[0.625rem] text-muted-foreground">
-          {sttProvider === "whisper"
-            ? "Not required when using local Whisper. "
+          {sttProvider !== "deepgram"
+            ? "Not required when using a local engine. "
             : "Required for cloud transcription. "}
           Configure in the Speech Recognition section.
         </p>
@@ -789,7 +809,7 @@ function RemoteControlSection() {
       <div className="rounded-lg border border-border bg-muted/30 p-3">
         <p className="text-[0.625rem] font-medium text-muted-foreground mb-1">Firewall Note</p>
         <p className="text-[0.625rem] text-muted-foreground leading-relaxed">
-          Your OS may block incoming connections. On macOS, allow Rhema through
+          Your OS may block incoming connections. On macOS, allow Chorus through
           System Settings → Network → Firewall. On Windows, allow through
           Windows Security → Firewall → Allow an app.
         </p>
@@ -849,7 +869,10 @@ function HelpSection() {
     <div className="space-y-6">
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">
-          Resources to help you get the most out of Rhema.
+          Resources to help you get the most out of Chorus.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Chorus is built on Rhema by OpenBezal (MIT License).
         </p>
       </div>
 

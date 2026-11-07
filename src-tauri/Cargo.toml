@@ -8,6 +8,8 @@ members = [
     "crates/broadcast",
     "crates/api",
     "crates/notes",
+    "crates/chorus-refparse",
+    "crates/replay",
 ]
 resolver = "2"
 
@@ -71,11 +73,24 @@ tauri-plugin-fs = "2"
 fontdb = "0.24.0"
 
 [features]
-default = ["whisper"]
+default = ["whisper", "parakeet"]
 whisper = ["rhema-stt/whisper"]
+# NVIDIA Parakeet speech engine (English, runs on the CPU).
+parakeet = ["whisper", "rhema-stt/parakeet"]
+cuda = ["whisper", "rhema-stt/cuda"]
+vulkan = ["whisper", "rhema-stt/vulkan"]
 
 [lints]
 workspace = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+
+# Speech recognition is unusably slow when compiled without optimizations,
+# so optimize it even in development builds (`bun run tauri dev`).
+# The rest of the app keeps fast debug compiles.
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
+
+[profile.dev.package.whisper-rs]
+opt-level = 3

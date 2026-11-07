@@ -16,7 +16,9 @@
 //!
 //! - `rest-fallback` — enables REST API fallback client
 //! - `whisper` — enables local Whisper STT provider
+//! - `parakeet` — enables local NVIDIA Parakeet STT provider (English, CPU)
 
+pub mod cleanup;
 pub mod deepgram;
 pub mod error;
 pub mod keyterms;
@@ -27,6 +29,9 @@ pub mod types;
 #[cfg(feature = "whisper")]
 pub mod whisper;
 
+#[cfg(feature = "parakeet")]
+pub mod parakeet;
+
 pub use deepgram::DeepgramClient;
 pub use error::SttError;
 pub use keyterms::bible_keyterms;
@@ -35,3 +40,6 @@ pub use types::{SttConfig, TranscriptEvent, Word};
 
 #[cfg(feature = "whisper")]
 pub use whisper::WhisperProvider;
+
+#[cfg(feature = "parakeet")]
+pub use parakeet::ParakeetProvider;

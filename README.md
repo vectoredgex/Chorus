@@ -1,3 +1,36 @@
+<h1 align="center">Chorus</h1>
+
+<p align="center">Real-time Bible verse detection for live sermons, in English and (coming) Malayalam.</p>
+
+Chorus listens to the preacher, recognises the Bible references they speak, and puts the verse on screen for the congregation and the livestream. It is built on [Rhema](https://github.com/openbezal/rhema) by OpenBezal (MIT License).
+
+## What Chorus changes
+
+**Accuracy.** A second reference engine (`src-tauri/crates/chorus-refparse`) runs ahead of Rhema's detector. When it is sure of a complete reference that exists in the Bible, it decides; everything else (held chapters, streaming completion, corrections, "previous verse") still goes through Rhema's detector.
+
+On the Chorus sermon-phrase benchmark (215 phrases, including false-trigger traps):
+
+| Detector | Correct |
+|---|---|
+| Rhema original | 193 / 210 (91.9%) |
+| Chorus | 215 / 215 (100%) |
+
+Fixed along the way, among others: "the third chapter of John verse sixteen" showing John 1:16, "verse sixteen of John three" showing Matthew 1:16, "two Timothy" read as 1 Timothy, "we sang verse two of the hymn" showing Titus 1:2, dropped range ends ("verses eight and nine"), and "the next verse" / "verse eleven" follow-ups landing on the wrong book.
+
+The benchmark runs on every push (`.github/workflows/chorus-tests.yml`) and fails the build if accuracy drops below 99%. Add any phrase that goes wrong in a real service to `src-tauri/crates/chorus-refparse/tests/cases.txt` (and the copy in `src-tauri/crates/detection/tests/chorus_cases.txt`).
+
+**Branding.** App name, window titles, NDI source names and the app identifier (`com.vectoredgex.chorus`) are Chorus. Internal crate names stay `rhema-*` so upstream fixes can still be merged in.
+
+## Roadmap
+
+1. English verses, as accurate as possible (in progress)
+2. Malayalam: speech engine, Malayalam/Manglish book names and numbers, Malayalam Bible, bilingual display
+3. Songs: follow-along lyrics
+
+Everything below is Rhema's original documentation; download links and issue links point to upstream Rhema.
+
+---
+
 <p align="center">
   <img src="public/rhema.svg" alt="Rhema logo" width="160" height="160" />
 </p>
