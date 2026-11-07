@@ -24,6 +24,17 @@ Tauri backend as a crate under `src-tauri/crates/`.
 - Follow-ups using the last reference: "look at verse 28", "the next verse",
   "in chapter four verse twenty four", "the first verse"
 
+## Malayalam
+
+Malayalam transcripts (any text containing Malayalam script) are rewritten
+into English word order first (`src/malayalam.rs`), so the same grammar
+handles them: "യോഹന്നാൻ മൂന്നാം അദ്ധ്യായം പതിനാറാം വാക്യം" → John 3:16.
+It knows the book names of the 1910 Sathyavedapusthakam (and modern
+spellings, with case endings), number words 1-176, അദ്ധ്യായം/വാക്യം,
+ranges ("നാലു മുതൽ ഏഴു വരെ", "എട്ടും ഒമ്പതും"), numbered books, and
+recovers words the speech engine mishears by their sound. A book name it
+cannot make out never borrows the previous book. Tests: `tests/cases_ml.txt`.
+
 ## What it refuses
 
 - Everyday uses of book names: "mark my words", "my job is…", "James and
