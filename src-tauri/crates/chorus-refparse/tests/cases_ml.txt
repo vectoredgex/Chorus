@@ -104,3 +104,17 @@
 അടുത്ത വാക്യം => NONE
 # "Chronicles" with its 1/2 garbled: we cannot tell which.
 രന ദിനവൃത്താന്തം ഏഴാം അധ്യായം പതിനാലാം വാക്കും => NONE
+
+# --- Jayden's first live test (laptop mic, IndicConformer) ---------------
+# The short way: "<book> <number> <number>".
+സങ്കീര്ത്തനങ്ങള് രണ്ട് ഒന്ന് => Psalms 2:1 [H]
+ഉല്പ്പത്തി പുസ്തകം അഞ്ചാം അദ്ധ്യായം മുപ്പത് => Genesis 5:30 [H]
+# Start of the name cut off; two numbers run together.
+കീർത്തനങ്ങൾ രണ്ടൊന്ന => Psalms 2:1 [H]
+# A misspelled name with no chapter/verse words.
+സദര്ശവാാക്കങ്ങള് പതിനൊന്നിന്റെ പന്ത്രണ്ട് => Proverbs 11:12 [H]
+സദര്ശ്യവാക്യങ്ങള് പതിനൊന്ന് പന്ത്രണ്ട് => Proverbs 11:12 [H]
+# ...but a short misheard word is not guessed ("പ്രോവർ" for റോമർ).
+പ്രോവർ പന്ത്രണ്ടിൽ ഒന്നും രണ്ടും വാക്യങ്ങൾ => NONE
+# A guess must have the chapter: Obadiah has one.
+ഇരതിയാറ് ഇരുപത്തൊമ്പത് അധ്യായം പതിനെന്ന ബാക്കി => NONE

@@ -486,7 +486,28 @@ fn classify(word: &str) -> Vec<(String, Tok)> {
     if let Some(parts) = split_merged(&w, false) {
         return parts;
     }
+    // Two numbers run together: "രണ്ടൊന്ന്" = രണ്ട് ഒന്ന് (2 1).
+    if let Some(parts) = split_numbers(&w) {
+        return parts;
+    }
     vec![(w, Tok::Other)]
+}
+
+fn split_numbers(w: &str) -> Option<Vec<(String, Tok)>> {
+    let chars: Vec<char> = w.chars().collect();
+    for k in 2..chars.len() {
+        let Some(iv) = independent_vowel(chars[k]) else { continue };
+        let head: String = chars[..k].iter().collect();
+        let rest: String = std::iter::once(iv).chain(chars[k + 1..].iter().copied()).collect();
+        let (Some(&a), Some(b)) = (number_stems().get(head.as_str()), match_number(&rest)) else { continue };
+        // "ഇരുപത്തൊന്ന്" is 21, already a single number; only plain pairs.
+        if a % 10 == 0 && a >= 20 {
+            continue;
+        }
+        let first = MlNum { value: a, ordinal: false, and: false };
+        return Some(vec![(head, Tok::Num(first)), (rest, Tok::Num(b))]);
+    }
+    None
 }
 
 /// The ways a number can be written when it is run into the word before
@@ -571,7 +592,14 @@ fn split_merged(w: &str, fuzzy: bool) -> Option<Vec<(String, Tok)>> {
                 return Some(vec![(head, t), num]);
             }
         } else if fuzzy {
-            if let (Some(num), Some(en)) = (number_part(&rest, false), fuzzy_book(&head)) {
+            let guess = |num: &(String, Tok)| {
+                let chapter = match num.1 {
+                    Tok::Num(n) => Some(n.value),
+                    _ => None,
+                };
+                fuzzy_book(&head).filter(|en| has_chapter(en, chapter))
+            };
+            if let Some((num, en)) = number_part(&rest, false).and_then(|n| guess(&n).map(|en| (n, en))) {
                 return Some(vec![(head, Tok::Word(en.to_string())), num]);
             }
         }
@@ -652,6 +680,24 @@ fn fuzzy_book(word: &str) -> Option<&'static str> {
     fuzzy_book_in(word, false)
 }
 
+/// Whether a book (by its English alias; a family name means any of its
+/// books) has this many chapters. A guessed name is dropped when the
+/// chapter after it cannot be in it ("ഇരതിയ ആറ്" is not Obadiah 6).
+fn has_chapter(en: &str, chapter: Option<u32>) -> bool {
+    let Some(c) = chapter else { return true };
+    let mut known = false;
+    for b in crate::books::BOOKS.iter() {
+        let name = b.name.to_ascii_lowercase();
+        if name == en || name.ends_with(&format!(" {en}")) || name.starts_with(&format!("{en} ")) {
+            known = true;
+            if c <= u32::from(b.chapters) {
+                return true;
+            }
+        }
+    }
+    !known
+}
+
 /// With `numbered`, the word follows "ഒന്നാം/രണ്ടാം/മൂന്നാം", so only the
 /// numbered books (1 John, 2 Timothy...) are candidates, and a short name
 /// may be one sound off: "ഒന്നാം രോഹനാൻ" = 1 John.
@@ -678,10 +724,34 @@ fn fuzzy_book_in(word: &str, numbered: bool) -> Option<&'static str> {
     // "കൊലോസ്", "പത്രോ".
     let fine = fine_skeleton(&w);
     if fine.len() >= 3 {
+        // English names in Malayalam letters count too: "പ്രോവർ" could be
+        // പ്രോവർബ്സ് (Proverbs) as well as പ്രവർത്തികൾ (Acts).
+        let mut hits = BOOKS
+            .iter()
+            .chain(ENGLISH_BOOKS)
+            .filter(|(en, _)| !numbered || is_family(en))
+            .filter(|(_, forms)| {
+                // More than half of the name: "പ്രോവർ" is not enough for
+                // അപ്പൊസ്തലപ്രവൃത്തികൾ.
+                forms.iter().any(|f| {
+                    let full = fine_skeleton(&stem(f));
+                    full.starts_with(&fine) && fine.len() * 2 > full.len()
+                })
+            });
+        let first = hits.next();
+        if let Some((en, _)) = first {
+            if hits.all(|(other, _)| other == en) {
+                return Some(en);
+            }
+        }
+    }
+    // The end of exactly one book's name, its start cut off by the
+    // speech detector: "കീർത്തനങ്ങൾ" (സങ്കീർത്തനങ്ങൾ).
+    if fine.len() >= 4 {
         let mut hits = BOOKS
             .iter()
             .filter(|(en, _)| !numbered || is_family(en))
-            .filter(|(_, forms)| forms.iter().any(|f| fine_skeleton(&stem(f)).starts_with(&fine)));
+            .filter(|(_, forms)| forms.iter().any(|f| fine_skeleton(&norm(f)).ends_with(&fine)));
         if let (Some((en, _)), None) = (hits.next(), hits.next()) {
             return Some(en);
         }
@@ -852,21 +922,43 @@ pub fn rewrite(text: &str) -> (String, bool) {
         if toks[i] != Tok::Other {
             continue;
         }
+        // "<name> 5 അദ്ധ്യായം" or the short way, "<name> 11 12".
         let pattern = |j: usize| {
             let j = skip_book_words(&toks, j);
-            matches!(toks.get(j), Some(Tok::Num(_))) && matches!(toks.get(j + 1), Some(Tok::Marker(_)))
+            matches!(toks.get(j), Some(Tok::Num(_)))
+                && matches!(toks.get(j + 1), Some(Tok::Marker(_)) | Some(Tok::Num(_)))
         };
-        if pattern(i + 1) {
+        // Without a chapter/verse word there is less to go on: only long
+        // names may be guessed ("സദര്ശവാക്കങ്ങള്", not "പ്രോവർ").
+        let short_way = |j: usize| {
+            let j = skip_book_words(&toks, j);
+            !matches!(toks.get(j + 1), Some(Tok::Marker(_)))
+        };
+        let long_enough = |w: &str| fine_skeleton(w).len() >= 6;
+        if pattern(i + 1) && (!short_way(i + 1) || long_enough(&words[i])) {
             let numbered = i > 0 && matches!(toks[i - 1], Tok::Num(n) if n.ordinal && (1..=3).contains(&n.value));
-            let guess = fuzzy_book(&words[i]).or_else(|| numbered.then(|| fuzzy_book_in(&words[i], true)).flatten());
+            let chapter = match toks.get(skip_book_words(&toks, i + 1)) {
+                Some(Tok::Num(n)) => Some(n.value),
+                _ => None,
+            };
+            let guess = fuzzy_book(&words[i])
+                .or_else(|| numbered.then(|| fuzzy_book_in(&words[i], true)).flatten())
+                .filter(|en| has_chapter(en, chapter));
             if let Some(en) = guess {
                 toks[i] = Tok::Word(en.to_string());
             }
-        } else if matches!(toks.get(i + 1), Some(Tok::Marker(_)) | Some(Tok::Other)) && pattern(i + 2) {
+        } else if matches!(toks.get(i + 1), Some(Tok::Marker(_)) | Some(Tok::Other))
+            && pattern(i + 2)
+            && (!short_way(i + 2) || long_enough(&format!("{}{}", words[i], words[i + 1])))
+        {
             // A name split in two: "സദരിച്ച വാക്യങ്ങൾ" for സദൃശവാക്യങ്ങൾ,
             // "അപസ്ഥതല പ്രവർത്തികൾ".
             let joined = format!("{}{}", words[i], words[i + 1]);
-            if let Some(en) = fuzzy_book(&joined) {
+            let chapter = match toks.get(skip_book_words(&toks, i + 2)) {
+                Some(Tok::Num(n)) => Some(n.value),
+                _ => None,
+            };
+            if let Some(en) = fuzzy_book(&joined).filter(|en| has_chapter(en, chapter)) {
                 toks[i] = Tok::Word(en.to_string());
                 toks[i + 1] = Tok::Word(String::new());
                 words[i + 1].clear();
