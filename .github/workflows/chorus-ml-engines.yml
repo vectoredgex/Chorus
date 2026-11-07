@@ -13,6 +13,7 @@ on:
     branches: ["chorus/**"]
     paths:
       - "scripts/chorus/ml_*.py"
+      - "src-tauri/crates/chorus-refparse/**"
       - ".github/workflows/chorus-ml-engines.yml"
   workflow_dispatch:
 
@@ -111,6 +112,14 @@ jobs:
           pattern: text-*
           path: out
           merge-multiple: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Find references in each transcript
+        working-directory: src-tauri
+        run: |
+          cargo build --release -q -p chorus-refparse --example detect_tsv
+          for f in ../out/*.tsv; do
+            target/release/examples/detect_tsv "$f" > "${f%.tsv}.refs"
+          done
       - name: Score
         run: |
           ls out

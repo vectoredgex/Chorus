@@ -12,7 +12,15 @@ fn conf_tag(c: Confidence) -> &'static str {
 
 #[test]
 fn sermon_phrases() {
-    let data = include_str!("cases.txt");
+    run(include_str!("cases.txt"));
+}
+
+#[test]
+fn malayalam_phrases() {
+    run(include_str!("cases_ml.txt"));
+}
+
+fn run(data: &str) {
     let mut det = Detector::new();
     let mut failures = Vec::new();
     let mut total = 0;

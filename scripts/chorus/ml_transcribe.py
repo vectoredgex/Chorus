@@ -51,7 +51,7 @@ def whisper(repo, threads):
     from transformers import WhisperForConditionalGeneration, WhisperProcessor
     torch.set_num_threads(threads)
     proc = WhisperProcessor.from_pretrained(repo)
-    model = WhisperForConditionalGeneration.from_pretrained(repo)
+    model = WhisperForConditionalGeneration.from_pretrained(repo, torch_dtype=torch.float32)
     model.eval()
 
     def run(wav):

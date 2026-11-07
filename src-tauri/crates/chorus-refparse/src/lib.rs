@@ -11,6 +11,7 @@
 //! auto-show only what is certain and ask about the rest.
 
 pub mod books;
+pub mod malayalam;
 pub mod numbers;
 
 use books::{Book, Target, ALIASES, WEAK_ALIASES};
@@ -520,7 +521,13 @@ impl Detector {
 
     /// Find every reference in a piece of transcript.
     pub fn detect(&mut self, text: &str) -> Vec<Detection> {
-        let t = normalize(text);
+        // Malayalam is rewritten into the English word order first:
+        // "യോഹന്നാൻ മൂന്നാം അദ്ധ്യായം" -> "john chapter 3".
+        let t = if malayalam::has_malayalam(text) {
+            normalize(&malayalam::to_english(text))
+        } else {
+            normalize(text)
+        };
         let mut out = Vec::new();
         let mut i = 0;
         // A book named in this utterance without a usable chapter

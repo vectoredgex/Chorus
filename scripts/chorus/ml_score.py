@@ -7,6 +7,8 @@ For each file prints:
              matcher in the reference finder can still rescue
   CER        character error rate over whole lines (lower is better)
   s/line     average transcription time
+  verses     references the Chorus reference finder found in the text
+             (right / wrong), from <name>.refs (detect_tsv output) if present
 Then the transcript of every reference line, so mistakes can be read.
 
 Usage: python3 ml_score.py <result.tsv>...
@@ -106,18 +108,37 @@ def score(path):
         if refs:
             lines.append(f"    {n:02d} {refs[0]:<22} {e}/{len(keys)} | {heard}")
     avg = sum(times) / max(len(times), 1)
-    return keys_total, exact, close, err / max(chars, 1), avg, lines
+    verses = None
+    refs_path = path.removesuffix(".tsv") + ".refs"
+    if os.path.exists(refs_path):
+        right = wrong = 0
+        for row in open(refs_path, encoding="utf-8"):
+            parts = row.rstrip("\n").split("\t")
+            if len(parts) < 2:
+                continue
+            n = int(re.search(r"line(\d+)", parts[0]).group(1))
+            found = parts[2].split("; ") if len(parts) > 2 and parts[2] else []
+            want = SERMON[n][1]
+            right += sum(1 for w in want if w in found)
+            bad = [f for f in found if f not in want]
+            wrong += len(bad)
+            if bad or any(w not in found for w in want):
+                lines.append(f"    {n:02d} finder: wanted {want} got {found}")
+        verses = (right, wrong)
+    return keys_total, exact, close, err / max(chars, 1), avg, lines, verses
 
 
 def main():
     rows = []
     print("\n==== MALAYALAM ENGINE COMPARISON ====")
-    print(f"{'engine / voice / sound':40} {'key words':>10} {'close':>8} {'CER':>6} {'s/line':>7}")
+    total_refs = sum(len(r) for _, r, _ in SERMON)
+    print(f"{'engine / voice / sound':40} {'verses':>7} {'wrong':>6} {'key words':>10} {'close':>8} {'CER':>6} {'s/line':>7}")
     for path in sys.argv[1:]:
         label = os.path.basename(path).removesuffix(".tsv")
-        total, exact, close, cer, avg, lines = score(path)
+        total, exact, close, cer, avg, lines, verses = score(path)
         rows.append((label, lines))
-        print(f"{label:40} {exact:>4}/{total:<5} {close:>3}/{total:<4} {cer:>6.1%} {avg:>7.2f}")
+        v = f"{verses[0]:>3}/{total_refs:<3} {verses[1]:>6}" if verses else f"{'-':>7} {'-':>6}"
+        print(f"{label:40} {v} {exact:>4}/{total:<5} {close:>3}/{total:<4} {cer:>6.1%} {avg:>7.2f}")
     print("\n==== WHAT EACH ENGINE HEARD (reference lines; n/m = key words exact) ====")
     for label, lines in rows:
         print(f"\n-- {label}")
