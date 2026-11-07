@@ -246,6 +246,31 @@ function AudioSection() {
 /*  Section: Speech Recognition                                               */
 /* -------------------------------------------------------------------------- */
 
+/** Show verses in Malayalam when the Malayalam engine is chosen, and switch
+ *  back to English (KJV, or the first English translation) when an English
+ *  engine is chosen while a Malayalam Bible is showing. */
+async function matchBibleToEngine(provider: SttProvider) {
+  try {
+    const [translations, active] = await Promise.all([
+      invoke<TranslationInfo[]>("list_translations"),
+      invoke<number>("get_active_translation"),
+    ])
+    const current = translations.find((t) => t.id === active)
+    const wantMalayalam = provider === "malayalam"
+    if ((current?.language === "ml") === wantMalayalam) return
+    const target = wantMalayalam
+      ? translations.find((t) => t.language === "ml")
+      : (translations.find((t) => t.abbreviation === "KJV") ??
+        translations.find((t) => t.language === "en"))
+    if (!target) return
+    await invoke("set_active_translation", { translationId: target.id })
+    const { useBibleStore } = await import("@/stores")
+    useBibleStore.getState().setActiveTranslation(target.id)
+  } catch (e) {
+    console.error("Failed to match the Bible to the speech engine:", e)
+  }
+}
+
 function SpeechSection() {
   const {
     sttProvider,
@@ -273,7 +298,10 @@ function SpeechSection() {
 
         <RadioGroup
           value={sttProvider}
-          onValueChange={(v) => setSttProvider(v as SttProvider)}
+          onValueChange={(v) => {
+            setSttProvider(v as SttProvider)
+            void matchBibleToEngine(v as SttProvider)
+          }}
           className="gap-3"
         >
           {/* Deepgram (cloud) */}
@@ -310,6 +338,26 @@ function SpeechSection() {
                 Runs NVIDIA Parakeet locally on your processor. Fully offline,
                 no graphics card needed, and many times faster than Whisper.
                 English only.
+              </p>
+            </div>
+          </label>
+
+          {/* Malayalam (local, IndicConformer) */}
+          <label
+            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-data-[state=checked]:border-primary/50 has-data-[state=checked]:bg-primary/5 has-data-[state=checked]:ring-1 has-data-[state=checked]:ring-primary/20 ${
+              sttProvider !== "malayalam" ? "hover:border-muted-foreground/25" : ""
+            }`}
+          >
+            <RadioGroupItem value="malayalam" className="mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-foreground">
+                Local (Malayalam) — മലയാളം
+              </span>
+              <p className="text-[0.625rem] leading-relaxed text-muted-foreground">
+                Runs AI4Bharat IndicConformer locally on your processor for
+                Malayalam sermons, and shows verses from the Malayalam Bible
+                (Sathyavedapusthakam 1910). Fully offline. Set up once with:
+                bun run download:malayalam
               </p>
             </div>
           </label>
