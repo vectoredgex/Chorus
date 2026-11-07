@@ -211,7 +211,7 @@ const ENGLISH_BOOKS: &[(&str, &[&str])] = &[
 
 /// English number and reference words in Malayalam letters.
 const ENGLISH_WORDS: &[(&str, &[&str])] = &[
-    ("one", &["വൺ"]), ("two", &["ടു", "ടൂ"]), ("three", &["ത്രീ"]), ("four", &["ഫോർ"]),
+    ("one", &["വൺ", "വൻ"]), ("two", &["ടു", "ടൂ"]), ("three", &["ത്രീ"]), ("four", &["ഫോർ"]),
     ("five", &["ഫൈവ്"]), ("six", &["സിക്സ്"]), ("seven", &["സെവൻ"]),
     ("eight", &["എയ്റ്റ്", "എയ്ട്ട്", "എയിറ്റ്", "എട്ട്‌"]), ("nine", &["നൈൻ"]),
     ("ten", &["ടെൻ"]), ("eleven", &["ഇലവൻ"]), ("twelve", &["ട്വൽവ്", "ട്വെൽവ്"]),
@@ -382,7 +382,7 @@ fn number_stems() -> &'static HashMap<String, u32> {
 }
 
 const CARDINAL_ENDINGS: &[&str] = &[
-    "", "്", "ു", "ും", "ില്", "ിലെ", "ിന്റെ", "ിലും", "ിലാണ്", "ില്നിന്ന്",
+    "", "്", "ു", "ും", "ില്", "ിലെ", "ിന്റെ", "ന്റെ", "ിലും", "ിലാണ്", "ില്നിന്ന്",
 ];
 const ORDINAL_ENDINGS: &[&str] = &[
     "ാം", "ാമ", "ാ", "ാമത്തെ", "ാമത്തേ", "ാമത്", "ാമതു", "ാമത്തില്", "ാമത്തിലെ", "ാമതായി", "ാമത്തേത്",
@@ -889,6 +889,28 @@ pub fn carry_tail(text: &str) -> Option<String> {
     Some(words[from..].join(" "))
 }
 
+/// Join a piece of a reference kept from before a pause (see
+/// [`carry_tail`]) with the next piece. A pause between two plain numbers
+/// separates chapter and verse: "ന്യായാധിപന്മാർ ഇരുപത്" … "മൂന്ന്" is
+/// Judges 20:3, not chapter 23.
+pub fn join_pieces(carry: &str, text: &str) -> String {
+    let cardinal = |w: Option<&String>| {
+        w.map(|w| classify(w)).is_some_and(|t| {
+            matches!(t.as_slice(), [(_, Tok::Num(n))] if !n.ordinal && !n.and)
+        })
+    };
+    let carried = split(carry);
+    let has_verse_word = carried
+        .iter()
+        .flat_map(|w| classify(w))
+        .any(|(_, t)| matches!(t, Tok::Marker(m) if m.starts_with("verse")));
+    if !has_verse_word && cardinal(carried.last()) && cardinal(split(text).first()) {
+        format!("{carry} വാക്യം {text}")
+    } else {
+        format!("{carry} {text}")
+    }
+}
+
 /// [`to_english`], and whether a reference to a book we could not make out
 /// was dropped. Follow-ups after it ("അതേ അദ്ധ്യായം", "അടുത്ത വാക്യം")
 /// must not attach to an older reference.
@@ -959,26 +981,44 @@ pub fn rewrite(text: &str) -> (String, bool) {
         if toks[i] != Tok::Other {
             continue;
         }
+        // A number at k, also a split one ("ഇരുപത്തി രണ്ട്"): its value
+        // and where the next word starts.
+        let number_at = |k: usize| -> Option<(u32, usize)> {
+            match toks.get(k)? {
+                Tok::Num(n) => Some((n.value, k + 1)),
+                Tok::Other => match (compound_prefix(&words[k], &Tok::Other), toks.get(k + 1)) {
+                    (Some((tens, below)), Some(Tok::Num(n))) if n.value < below => Some((tens + n.value, k + 2)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
         // "<name> 5 അദ്ധ്യായം" or the short way, "<name> 11 12".
         let pattern = |j: usize| {
             let j = skip_book_words(&toks, j);
-            matches!(toks.get(j), Some(Tok::Num(_)))
-                && matches!(toks.get(j + 1), Some(Tok::Marker(_)) | Some(Tok::Num(_)))
+            number_at(j).is_some_and(|(_, e)| {
+                matches!(toks.get(e), Some(Tok::Marker(_)) | Some(Tok::Num(_))) || number_at(e).is_some()
+            })
         };
         // Without a chapter/verse word there is less to go on: only long
         // names may be guessed ("സദര്ശവാക്കങ്ങള്", not "പ്രോവർ").
         let short_way = |j: usize| {
             let j = skip_book_words(&toks, j);
-            !matches!(toks.get(j + 1), Some(Tok::Marker(_)))
+            !number_at(j).is_some_and(|(_, e)| matches!(toks.get(e), Some(Tok::Marker(_))))
         };
         let long_enough = |w: &str| fine_skeleton(w).len() >= 6;
-        if pattern(i + 1) && (!short_way(i + 1) || long_enough(&words[i])) {
-            let numbered = i > 0 && matches!(toks[i - 1], Tok::Num(n) if n.ordinal && (1..=3).contains(&n.value));
-            let chapter = match toks.get(skip_book_words(&toks, i + 1)) {
-                Some(Tok::Num(n)) => Some(n.value),
-                _ => None,
+        // "ഒന്നാം", "ഒന്ന്", "വൺ" before the name: only 1/2/3 books are
+        // possible, so a short garbled name is enough ("ഒന്നാം ശമവിൽ").
+        let numbered = i > 0
+            && match &toks[i - 1] {
+                Tok::Num(n) => (1..=3).contains(&n.value) && !n.and,
+                Tok::Word(w) => matches!(w.as_str(), "one" | "two" | "three"),
+                _ => false,
             };
-            let guess = fuzzy_book(&words[i])
+        if pattern(i + 1) && (!short_way(i + 1) || long_enough(&words[i]) || numbered) {
+            let chapter = number_at(skip_book_words(&toks, i + 1)).map(|(v, _)| v);
+            let short_guess = short_way(i + 1) && !long_enough(&words[i]);
+            let guess = (!short_guess).then(|| fuzzy_book(&words[i])).flatten()
                 .or_else(|| numbered.then(|| fuzzy_book_in(&words[i], true)).flatten())
                 .filter(|en| has_chapter(en, chapter));
             if let Some(en) = guess {
@@ -991,10 +1031,7 @@ pub fn rewrite(text: &str) -> (String, bool) {
             // A name split in two: "സദരിച്ച വാക്യങ്ങൾ" for സദൃശവാക്യങ്ങൾ,
             // "അപസ്ഥതല പ്രവർത്തികൾ".
             let joined = format!("{}{}", words[i], words[i + 1]);
-            let chapter = match toks.get(skip_book_words(&toks, i + 2)) {
-                Some(Tok::Num(n)) => Some(n.value),
-                _ => None,
-            };
+            let chapter = number_at(skip_book_words(&toks, i + 2)).map(|(v, _)| v);
             if let Some(en) = fuzzy_book(&joined).filter(|en| has_chapter(en, chapter)) {
                 toks[i] = Tok::Word(en.to_string());
                 toks[i + 1] = Tok::Word(String::new());
@@ -1017,6 +1054,9 @@ pub fn rewrite(text: &str) -> (String, bool) {
         let unknown_book = matches!(toks.get(j0), Some(Tok::Num(_)))
             && (matches!(toks.get(j0 + 1), Some(Tok::Marker("chapter")))
                 || matches!(toks.get(j0 + 1), Some(Tok::Num(_)))
+                // "X 1 വാക്യം 1": chapter 1, verse 1 of the unknown book.
+                || (matches!(toks.get(j0 + 1), Some(Tok::Marker("verse")))
+                    && matches!(toks.get(j0 + 2), Some(Tok::Num(n)) if !n.ordinal))
                 || (matches!(toks.get(j0 + 1), Some(Tok::Other))
                     && matches!(toks.get(j0 + 2), Some(Tok::Num(_)))
                     && matches!(toks.get(j0 + 3), Some(Tok::Marker(m)) if m.starts_with("verse"))));
@@ -1200,6 +1240,10 @@ fn is_family(w: &str) -> bool {
 /// A tens word ("ഇരുപത്", "ഇരുപത്തി") or hundred word ("നൂറ്റി") that
 /// combines with the next number: (value, the next number must be below).
 fn compound_prefix(word: &str, tok: &Tok) -> Option<(u32, u32)> {
+    // "ഇരുപതിന്റെ മൂന്ന്" is verse 3 of chapter 20, not 23.
+    if word.ends_with("ന്റെ") {
+        return None;
+    }
     if let Tok::Num(n) = tok {
         if !n.ordinal && !n.and && n.value % 10 == 0 && (20..=90).contains(&n.value) {
             return Some((n.value, 10));

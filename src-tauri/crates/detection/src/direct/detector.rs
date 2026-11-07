@@ -498,6 +498,10 @@ pub struct DirectDetector {
     /// Context as it stood before the current utterance started, so relative
     /// follow-ups ("the next verse") don't advance again on every partial.
     chorus_snapshot: Option<chorus_refparse::Reference>,
+    /// The pending incomplete reference before the current utterance
+    /// started, so a partial ("Five.") and its final don't both apply it
+    /// (live test: "2 Chronicles 15" + "Five" became 5:5).
+    incomplete_snapshot: Option<IncompleteRef>,
     /// When a non-existent reference was last heard; a bare number pair soon
     /// after it is a correction ("Revelation 20 22 … 22 20").
     last_rejected_at: Option<std::time::Instant>,
@@ -523,6 +527,7 @@ impl DirectDetector {
             utterance_open: false,
             settled: Vec::new(),
             chorus_snapshot: None,
+            incomplete_snapshot: None,
             last_rejected_at: None,
             ml_carry: None,
         }
@@ -648,7 +653,7 @@ impl DirectDetector {
             .filter(|(_, at)| at.elapsed() <= ML_JOIN_GAP)
             .map(|(t, _)| t.clone());
         let joined = match &fresh {
-            Some(start) => format!("{start} {text}"),
+            Some(start) => chorus_refparse::malayalam::join_pieces(start, text),
             None => text.to_string(),
         };
         let out = self.detect_inner(&joined, same_utterance);
@@ -671,8 +676,10 @@ impl DirectDetector {
         let found_so_far = self.chorus.last();
         if same_utterance {
             self.chorus.set_last(self.chorus_snapshot);
+            self.incomplete = self.incomplete_snapshot.clone();
         } else {
             self.chorus_snapshot = self.chorus.last();
+            self.incomplete_snapshot = self.incomplete.clone();
         }
         self.chorus_prev_text = text.to_string();
 
@@ -944,7 +951,7 @@ impl DirectDetector {
                 if resolved.verse_start == 0 {
                     // Detect if chapter was explicitly spoken or defaulted.
                     let after_book = text[book_match.end..].trim();
-                    let has_explicit_chapter = after_book.starts_with(|c: char| c.is_ascii_digit())
+                    let has_explicit_chapter = parser::starts_with_number(after_book)
                         || after_book.to_lowercase().starts_with("chapter");
                     self.incomplete = Some(IncompleteRef {
                         verse_ref: resolved.clone(),
@@ -2691,4 +2698,46 @@ mod tests {
         // Revelation has 22 chapters: chapters 25 and 55 must show nothing.
         assert!(b.is_empty(), "{b:?}");
     }
+
+    /// Live test 2026-11-07 17:47: "<chapter>-ന്റെ <verse>", garbled
+    /// Samuels, and a pause between chapter and verse.
+    #[test]
+    fn malayalam_live_session_four() {
+        let a = ml_session(&["ന്യായാധിപന്മാര് ഇരുപത്", "മൂന്ന്"]);
+        assert_eq!(a, vec!["7 20:3".to_string()]);
+        let b = ml_session(&["ഒന്നാം ഷാംമ്പുവിൽ", "മുപ്പതിന്റെ", "ഒന്ന്", "ഷമേൽ ഒന്ന്", "ഒന്ന്"]);
+        assert_eq!(b, vec!["9 30:1".to_string()]);
+        let c = ml_session(&[
+            "വൺ സാമുുവൽ ഒന്നിന്റെ മൂന്ന്",
+            "വൺ സാമുവൽ ടടു ഇന്റെ",
+            "രണ്ട്",
+            "വന് സാമുവേൽ രണ്ടിന്റെ മൂന്ന്",
+            "വന് സാംഗുവേൽ രണ്ടിന്റെ അഞ്ച്",
+        ]);
+        assert_eq!(c, vec!["9 1:3", "9 2:3", "9 2:5"]);
+    }
+
+    /// Live test 2026-11-07 17:56: "Second Chronicles fifteen" … "Five"
+    /// showed 2 Chronicles 5:5. The partial "Five." moved the waiting
+    /// reference to chapter 5 and its final then read verse 5.
+    #[test]
+    fn chapter_then_paused_verse_is_read_once() {
+        let mut d = DirectDetector::new();
+        let mut shown = Vec::new();
+        for (fin, text) in [
+            (true, "Second Chronicles fifteen one."),
+            (false, "Second Chronicles fifteen."),
+            (true, "Second Chronicles fifteen"),
+            (false, "Five."),
+            (true, "Five"),
+        ] {
+            for r in d.detect_utterance(text, fin) {
+                let v = &r.verse_ref;
+                shown.push(format!("{} {}:{}", v.book_number, v.chapter, v.verse_start));
+            }
+        }
+        assert_eq!(shown.last().map(String::as_str), Some("14 15:5"), "{shown:?}");
+        assert!(!shown.iter().any(|s| s == "14 5:5"), "{shown:?}");
+    }
 }
+

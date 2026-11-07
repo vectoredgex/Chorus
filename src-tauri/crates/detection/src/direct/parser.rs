@@ -606,6 +606,12 @@ fn token_to_number(token: &Token) -> Option<i32> {
 /// Try to consume a number at the given token position.
 /// Returns (number, `next_token_index`) if successful.
 /// Handles both digit tokens and spoken number words (including compounds like "thirty two").
+/// Whether the text starts with a number, in digits or words
+/// ("15", "fifteen").
+pub fn starts_with_number(text: &str) -> bool {
+    consume_number(&tokenize(&text.to_lowercase()), 0).is_some()
+}
+
 fn consume_number(tokens: &[Token], start: usize) -> Option<(i32, usize)> {
     if start >= tokens.len() {
         return None;
