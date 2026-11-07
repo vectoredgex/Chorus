@@ -126,6 +126,51 @@ pub async fn start_transcription(
                 n_threads,
             ))
         }
+        #[cfg(feature = "parakeet")]
+        "parakeet" => {
+            // Dev: {CARGO_MANIFEST_DIR}/../models/parakeet/<model>/
+            // Prod: resource_dir()/models/parakeet/<model>/
+            let model_dir = {
+                let dev_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("models")
+                    .join("parakeet")
+                    .join(rhema_stt::parakeet::MODEL_DIR_NAME);
+                if rhema_stt::parakeet::model_present(&dev_dir) {
+                    dev_dir
+                } else {
+                    app.path()
+                        .resource_dir()
+                        .map(|p| {
+                            p.join("models")
+                                .join("parakeet")
+                                .join(rhema_stt::parakeet::MODEL_DIR_NAME)
+                        })
+                        .ok()
+                        .filter(|p| rhema_stt::parakeet::model_present(p))
+                        .ok_or_else(|| {
+                            "Parakeet model not found. Run: bun run download:parakeet".to_string()
+                        })?
+                }
+            };
+
+            let parallelism = std::thread::available_parallelism()
+                .map_or(4, usize::from);
+            let n_threads = i32::try_from(parallelism / 2).unwrap_or(2).max(1);
+
+            log::info!(
+                "Starting Parakeet transcription: model={}, threads={n_threads}, device_id={device_id:?}",
+                model_dir.display()
+            );
+
+            Box::new(rhema_stt::ParakeetProvider::new(model_dir, n_threads))
+        }
+        #[cfg(not(feature = "parakeet"))]
+        "parakeet" => {
+            return Err(
+                "Parakeet support not compiled. Rebuild with --features parakeet".into(),
+            );
+        }
         #[cfg(not(feature = "whisper"))]
         "whisper" => {
             return Err(

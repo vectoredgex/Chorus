@@ -13,6 +13,7 @@ on:
       - "src-tauri/crates/detection/**"
       - "src-tauri/crates/chorus-refparse/**"
       - "src-tauri/crates/replay/**"
+      - "src-tauri/Cargo.lock"
       - "scripts/chorus/**"
       - ".github/workflows/chorus-replay.yml"
   workflow_dispatch:
@@ -64,8 +65,10 @@ jobs:
       - name: Cache Whisper model
         uses: actions/cache@v4
         with:
-          path: models/whisper
-          key: whisper-large-v3-turbo-q8_0
+          path: |
+            models/whisper
+            models/parakeet
+          key: whisper-large-v3-turbo-q8_0-parakeet-v2-int8
 
       - name: Download Whisper model (same file the app uses)
         run: |
@@ -73,6 +76,16 @@ jobs:
           f=models/whisper/ggml-large-v3-turbo-q8_0.bin
           [ -s "$f" ] || curl -L --fail --retry 3 -o "$f" \
             https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
+
+      - name: Download Parakeet model
+        run: |
+          mkdir -p models/parakeet
+          p=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          if [ ! -s "$p/encoder.int8.onnx" ]; then
+            curl -L --fail --retry 3 -o pk.tar.bz2 \
+              https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+            tar xjf pk.tar.bz2 -C models/parakeet && rm pk.tar.bz2
+          fi
 
       - name: Make test sermon
         run: python3 scripts/chorus/make-sermon.py sermon ${{ steps.piper.outputs.model }}
@@ -91,4 +104,16 @@ jobs:
         working-directory: src-tauri
         run: |
           ./target/debug/chorus-replay ../models/whisper/ggml-large-v3-turbo-q8_0.bin $(nproc) \
+            ../sermon/sermon_noisy.wav ../sermon/expected.txt 2>/dev/null
+
+      - name: Replay with Parakeet (clear speech)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 $(nproc) \
+            ../sermon/sermon_clean.wav ../sermon/expected.txt 2>/dev/null
+
+      - name: Replay with Parakeet (echo and background noise)
+        working-directory: src-tauri
+        run: |
+          ./target/debug/chorus-replay ../models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 $(nproc) \
             ../sermon/sermon_noisy.wav ../sermon/expected.txt 2>/dev/null

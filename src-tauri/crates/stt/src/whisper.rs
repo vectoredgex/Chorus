@@ -183,7 +183,7 @@ fn merge_queued_finals(first: Vec<i16>, queued: Vec<Job>) -> (Vec<i16>, Option<J
     (merged, (!rest.is_empty()).then_some(Job::Final(rest)))
 }
 
-enum Job {
+pub(crate) enum Job {
     /// Speech so far in an ongoing utterance. Skipped if a newer job is
     /// already waiting, so a slow CPU never falls behind.
     Partial(Vec<i16>),
@@ -195,7 +195,7 @@ enum Job {
 /// (pastor turned away, laptop mic across the room) is raised so its loud
 /// parts reach about half of full scale. Gain is capped at 8x so silence and
 /// hiss are not blown up, and loud audio is never turned down.
-fn level_volume(samples: &mut [f32]) {
+pub(crate) fn level_volume(samples: &mut [f32]) {
     const TARGET_PEAK: f32 = 0.5;
     const MAX_GAIN: f32 = 8.0;
     if samples.is_empty() {
@@ -216,7 +216,7 @@ fn level_volume(samples: &mut [f32]) {
 }
 
 /// Convert i16 PCM samples to f32 in [-1.0, 1.0] range.
-fn i16_to_f32(samples: &[i16]) -> Vec<f32> {
+pub(crate) fn i16_to_f32(samples: &[i16]) -> Vec<f32> {
     samples.iter().map(|&s| f32::from(s) / 32768.0).collect()
 }
 
@@ -265,6 +265,186 @@ fn extract_segments(state: &WhisperState) -> (String, Vec<Word>, f64) {
     };
 
     (full_text.trim().to_string(), words, avg_confidence)
+}
+
+/// When live partial transcripts are made while someone is speaking.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PartialTiming {
+    /// No partial until the utterance is at least this long (samples).
+    pub partial_min: usize,
+    /// Then one partial per this much new audio (samples).
+    pub partial_every: usize,
+}
+
+/// Whisper's timing: see `PARTIAL_MIN_SAMPLES` and `PARTIAL_EVERY_SAMPLES`.
+pub(crate) const WHISPER_PARTIALS: PartialTiming = PartialTiming {
+    partial_min: PARTIAL_MIN_SAMPLES,
+    partial_every: PARTIAL_EVERY_SAMPLES,
+};
+
+/// Speech detection and phrase cutting, shared by every local engine: reads
+/// microphone audio, finds where phrases start and end, and queues
+/// [`Job`]s (finished phrases, and partials while speaking) for the engine.
+pub(crate) fn run_segmenter(
+    audio_rx: Receiver<Vec<i16>>,
+    inference_tx: mpsc::Sender<Job>,
+    event_tx: mpsc::Sender<TranscriptEvent>,
+    cancelled: Arc<AtomicBool>,
+    cfg: PartialTiming,
+) {
+    use rhema_audio::{AudioFrame, Vad, VadConfig, VadTransition};
+
+    // Higher thresholds than default to avoid sending near-silence
+    // to Whisper (which causes hallucinations).
+    let vad_config = VadConfig {
+        silence_threshold: 0.01,
+        frame_threshold: 0.005,
+        min_voice_frames: VAD_MIN_VOICE_FRAMES,
+        silence_frame_count: VAD_SILENCE_END_FRAMES,
+        pre_buffer_frames: VAD_PRE_BUFFER_FRAMES,
+        max_utterance_frames: VAD_MAX_UTTERANCE_FRAMES,
+        ..VadConfig::default()
+    };
+    // Microphone samples waiting to fill a 20 ms frame.
+    let mut pending: Vec<i16> = Vec::with_capacity(VAD_FRAME_SAMPLES * 4);
+    let mut vad = Vad::new(vad_config);
+    let mut audio_buffer: Vec<i16> = Vec::new();
+    let mut frames_seen: u64 = 0;
+    // Buffer length when the last partial was sent.
+    let mut partial_mark: usize = 0;
+    // When the last too-short piece ended (it is still in the buffer).
+    let mut short_piece_at: Option<std::time::Instant> = None;
+
+    loop {
+        if cancelled.load(Ordering::SeqCst) {
+            if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
+                let _ = inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
+            }
+            break;
+        }
+
+        match audio_rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(samples) => {
+              pending.extend_from_slice(&samples);
+              while pending.len() >= VAD_FRAME_SAMPLES {
+                let chunk: Vec<i16> = pending.drain(..VAD_FRAME_SAMPLES).collect();
+                let frame = AudioFrame { samples: chunk, timestamp_ms: 0 };
+                let result = vad.process(&frame);
+
+                if let Some(transition) = result.transition {
+                    match transition {
+                        VadTransition::SpeechStarted => {
+                            // Drop a leftover short piece that is too old
+                            // to belong to this utterance.
+                            if short_piece_at
+                                .is_some_and(|t| t.elapsed() > SHORT_PIECE_JOIN_WINDOW)
+                            {
+                                audio_buffer.clear();
+                                partial_mark = 0;
+                            }
+                            short_piece_at = None;
+                            let _ = event_tx
+                                .blocking_send(TranscriptEvent::SpeechStarted);
+                        }
+                        VadTransition::SpeechEnded => {
+                            log::info!(
+                                "[WHISPER] flush on SpeechEnded: audio_buffer={} samples ({:.1}s)",
+                                audio_buffer.len(),
+                                audio_buffer.len() as f64 / 16_000.0,
+                            );
+                            if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
+                                let _ = inference_tx.blocking_send(Job::Final(
+                                    std::mem::take(&mut audio_buffer),
+                                ));
+                                partial_mark = 0;
+                            } else if audio_buffer.len() >= MIN_WORD_SAMPLES {
+                                // Too short alone ("John"); keep it so it
+                                // is transcribed with what follows.
+                                short_piece_at = Some(std::time::Instant::now());
+                            } else if short_piece_at.is_none() {
+                                // A click or breath on its own: drop it.
+                                audio_buffer.clear();
+                                partial_mark = 0;
+                            }
+                        }
+                    }
+                }
+
+                for frame in result.frames {
+                    audio_buffer.extend_from_slice(&frame.samples);
+                    frames_seen += 1;
+                }
+
+                if frames_seen.is_multiple_of(50) && !audio_buffer.is_empty() {
+                    log::debug!(
+                        "[WHISPER] audio_buffer={} samples ({:.1}s) frames_seen={frames_seen}",
+                        audio_buffer.len(),
+                        audio_buffer.len() as f64 / 16_000.0,
+                    );
+                }
+
+                if audio_buffer.len() >= MAX_BUFFER_SAMPLES {
+                    log::warn!(
+                        "[WHISPER] flush on MAX_BUFFER ({} samples / {:.1}s) — VAD never closed",
+                        audio_buffer.len(),
+                        audio_buffer.len() as f64 / 16_000.0,
+                    );
+                    let _ = inference_tx
+                        .blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
+                    partial_mark = 0;
+                } else if audio_buffer.len() >= cfg.partial_min
+                    && audio_buffer.len() >= partial_mark + cfg.partial_every
+                {
+                    // Never block the audio loop for a partial; if the
+                    // inference queue is full, the next one will do.
+                    partial_mark = audio_buffer.len();
+                    let _ = inference_tx.try_send(Job::Partial(audio_buffer.clone()));
+                }
+              }
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
+                    let _ = inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
+                }
+                break;
+            }
+        }
+    }
+}
+
+/// Takes the next piece of audio to transcribe: a stale partial is skipped
+/// when newer audio is waiting, and finished phrases waiting in line are
+/// joined into one (see [`merge_queued_finals`]). Returns the audio and
+/// whether it is a partial; `None` when the segmenter has stopped.
+pub(crate) fn next_job(
+    inference_rx: &mut mpsc::Receiver<Job>,
+    pending_job: &mut Option<Job>,
+) -> Option<(Vec<i16>, bool)> {
+    let mut job = match pending_job.take() {
+        Some(j) => j,
+        None => inference_rx.blocking_recv()?,
+    };
+    // A partial is stale once newer audio is queued: skip ahead.
+    while matches!(job, Job::Partial(_)) {
+        match inference_rx.try_recv() {
+            Ok(next) => job = next,
+            Err(_) => break,
+        }
+    }
+    Some(match job {
+        Job::Partial(a) => (a, true),
+        Job::Final(a) => {
+            let mut queued = Vec::new();
+            while let Ok(next) = inference_rx.try_recv() {
+                queued.push(next);
+            }
+            let (merged, left) = merge_queued_finals(a, queued);
+            // A phrase too long to join goes back to the front of the line.
+            *pending_job = left;
+            (merged, false)
+        }
+    })
 }
 
 /// Local Whisper STT provider.
@@ -329,125 +509,7 @@ impl SttProvider for WhisperProvider {
         let vad_cancelled = cancelled.clone();
         let vad_event_tx = event_tx.clone();
         let vad_handle = tokio::task::spawn_blocking(move || {
-            use rhema_audio::{AudioFrame, Vad, VadConfig, VadTransition};
-
-            // Higher thresholds than default to avoid sending near-silence
-            // to Whisper (which causes hallucinations).
-            let vad_config = VadConfig {
-                silence_threshold: 0.01,
-                frame_threshold: 0.005,
-                min_voice_frames: VAD_MIN_VOICE_FRAMES,
-                silence_frame_count: VAD_SILENCE_END_FRAMES,
-                pre_buffer_frames: VAD_PRE_BUFFER_FRAMES,
-                max_utterance_frames: VAD_MAX_UTTERANCE_FRAMES,
-                ..VadConfig::default()
-            };
-            // Microphone samples waiting to fill a 20 ms frame.
-            let mut pending: Vec<i16> = Vec::with_capacity(VAD_FRAME_SAMPLES * 4);
-            let mut vad = Vad::new(vad_config);
-            let mut audio_buffer: Vec<i16> = Vec::new();
-            let mut frames_seen: u64 = 0;
-            // Buffer length when the last partial was sent.
-            let mut partial_mark: usize = 0;
-            // When the last too-short piece ended (it is still in the buffer).
-            let mut short_piece_at: Option<std::time::Instant> = None;
-
-            loop {
-                if vad_cancelled.load(Ordering::SeqCst) {
-                    if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                        let _ = inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
-                    }
-                    break;
-                }
-
-                match audio_rx.recv_timeout(Duration::from_millis(50)) {
-                    Ok(samples) => {
-                      pending.extend_from_slice(&samples);
-                      while pending.len() >= VAD_FRAME_SAMPLES {
-                        let chunk: Vec<i16> = pending.drain(..VAD_FRAME_SAMPLES).collect();
-                        let frame = AudioFrame { samples: chunk, timestamp_ms: 0 };
-                        let result = vad.process(&frame);
-
-                        if let Some(transition) = result.transition {
-                            match transition {
-                                VadTransition::SpeechStarted => {
-                                    // Drop a leftover short piece that is too old
-                                    // to belong to this utterance.
-                                    if short_piece_at
-                                        .is_some_and(|t| t.elapsed() > SHORT_PIECE_JOIN_WINDOW)
-                                    {
-                                        audio_buffer.clear();
-                                        partial_mark = 0;
-                                    }
-                                    short_piece_at = None;
-                                    let _ = vad_event_tx
-                                        .blocking_send(TranscriptEvent::SpeechStarted);
-                                }
-                                VadTransition::SpeechEnded => {
-                                    log::info!(
-                                        "[WHISPER] flush on SpeechEnded: audio_buffer={} samples ({:.1}s)",
-                                        audio_buffer.len(),
-                                        audio_buffer.len() as f64 / 16_000.0,
-                                    );
-                                    if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                                        let _ = inference_tx.blocking_send(Job::Final(
-                                            std::mem::take(&mut audio_buffer),
-                                        ));
-                                        partial_mark = 0;
-                                    } else if audio_buffer.len() >= MIN_WORD_SAMPLES {
-                                        // Too short alone ("John"); keep it so it
-                                        // is transcribed with what follows.
-                                        short_piece_at = Some(std::time::Instant::now());
-                                    } else if short_piece_at.is_none() {
-                                        // A click or breath on its own: drop it.
-                                        audio_buffer.clear();
-                                        partial_mark = 0;
-                                    }
-                                }
-                            }
-                        }
-
-                        for frame in result.frames {
-                            audio_buffer.extend_from_slice(&frame.samples);
-                            frames_seen += 1;
-                        }
-
-                        if frames_seen.is_multiple_of(50) && !audio_buffer.is_empty() {
-                            log::debug!(
-                                "[WHISPER] audio_buffer={} samples ({:.1}s) frames_seen={frames_seen}",
-                                audio_buffer.len(),
-                                audio_buffer.len() as f64 / 16_000.0,
-                            );
-                        }
-
-                        if audio_buffer.len() >= MAX_BUFFER_SAMPLES {
-                            log::warn!(
-                                "[WHISPER] flush on MAX_BUFFER ({} samples / {:.1}s) — VAD never closed",
-                                audio_buffer.len(),
-                                audio_buffer.len() as f64 / 16_000.0,
-                            );
-                            let _ = inference_tx
-                                .blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
-                            partial_mark = 0;
-                        } else if audio_buffer.len() >= PARTIAL_MIN_SAMPLES
-                            && audio_buffer.len() >= partial_mark + PARTIAL_EVERY_SAMPLES
-                        {
-                            // Never block the audio loop for a partial; if the
-                            // inference queue is full, the next one will do.
-                            partial_mark = audio_buffer.len();
-                            let _ = inference_tx.try_send(Job::Partial(audio_buffer.clone()));
-                        }
-                      }
-                    }
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                        if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                            let _ = inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
-                        }
-                        break;
-                    }
-                }
-            }
+            run_segmenter(audio_rx, inference_tx, vad_event_tx, vad_cancelled, WHISPER_PARTIALS);
         });
 
         // ── Task 2: Whisper inference ────────────────────────────────────
@@ -490,33 +552,10 @@ impl SttProvider for WhisperProvider {
             // A finished phrase taken off the queue but not yet transcribed.
             let mut pending_job: Option<Job> = None;
 
-            while let Some(mut job) = pending_job.take().or_else(|| inference_rx.blocking_recv()) {
+            while let Some((audio_i16, is_partial)) = next_job(&mut inference_rx, &mut pending_job) {
                 if inf_cancelled.load(Ordering::SeqCst) {
                     break;
                 }
-                // A partial is stale once newer audio is queued: skip ahead.
-                while matches!(job, Job::Partial(_)) {
-                    match inference_rx.try_recv() {
-                        Ok(next) => job = next,
-                        Err(_) => break,
-                    }
-                }
-                let (audio_i16, is_partial) = match job {
-                    Job::Partial(a) => (a, true),
-                    Job::Final(a) => {
-                        let mut queued = Vec::new();
-                        while let Ok(next) = inference_rx.try_recv() {
-                            queued.push(next);
-                        }
-                        let (merged, left) = merge_queued_finals(a, queued);
-                        if let Some(next) = left {
-                            // Too long to join; it goes back to the front
-                            // of the line after this one.
-                            pending_job = Some(next);
-                        }
-                        (merged, false)
-                    }
-                };
 
                 let mut audio_f32 = i16_to_f32(&audio_i16);
                 level_volume(&mut audio_f32);

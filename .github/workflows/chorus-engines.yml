@@ -2,7 +2,7 @@ name: Chorus speech engines
 
 # Compares speech engines on the test sermon, one line at a time:
 # Whisper large-v3-turbo (what the app uses) and NVIDIA Parakeet TDT 0.6B v2
-# (sherpa-onnx, int8). Same clips, same CPU, same Chorus detector; prints a
+# (sherpa-onnx, int8, through the app's own Rust code). Same clips, same CPU, same Chorus detector; prints a
 # table of verses right / wrong and time per line. CPU only.
 
 on:
@@ -14,7 +14,7 @@ on:
       - "src-tauri/crates/replay/src/bin/**"
       - "src-tauri/crates/chorus-refparse/**"
       - "src-tauri/crates/detection/**"
-      - "src-tauri/crates/stt/examples/whisper_lines.rs"
+      - "src-tauri/crates/stt/**"
       - ".github/workflows/chorus-engines.yml"
   workflow_dispatch:
 
@@ -40,7 +40,6 @@ jobs:
         run: |
           sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y -o Acquire::Retries=3 espeak-ng ffmpeg libasound2-dev
-          pip install --quiet sherpa-onnx numpy
 
       - name: Install natural voice (Piper)
         if: matrix.voice == 'natural'
@@ -98,6 +97,7 @@ jobs:
         working-directory: src-tauri
         run: |
           cargo build --release -p rhema-stt --features whisper --example whisper_lines
+          cargo build --release -p rhema-stt --features parakeet --example parakeet_lines
           cargo build --release -p chorus-replay --bin detect-lines
 
       - name: Transcribe
@@ -109,7 +109,7 @@ jobs:
           for cond in clear noisy; do
             if [ $cond = clear ]; then clips=$(ls sermon/line??.wav); else clips=$(ls sermon/line??_noisy.wav); fi
             $W models/whisper/ggml-large-v3-turbo-q8_0.bin $T $clips 2>/dev/null > out/whisper_$cond.txt
-            python3 scripts/chorus/parakeet_lines.py $P $T $clips > out/parakeet_$cond.txt
+            src-tauri/target/release/examples/parakeet_lines $P $T $clips 2>/dev/null > out/parakeet_$cond.txt
           done
           for f in out/*.txt; do echo "==== $f"; cat "$f"; done
 

@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { load, type Store } from "@tauri-apps/plugin-store"
 
-type SttProvider = "deepgram" | "whisper"
+export type SttProvider = "deepgram" | "whisper" | "parakeet"
 
 interface SettingsState {
   deepgramApiKey: string | null
@@ -14,6 +14,8 @@ interface SettingsState {
   cooldownMs: number
   onboardingComplete: boolean
   sttProvider: SttProvider
+  /** Settings format version (1 = saved after Parakeet was added). */
+  engineMigration: number
 
   setDeepgramApiKey: (key: string | null) => void
   setOpenaiApiKey: (key: string | null) => void
@@ -37,7 +39,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   confidenceThreshold: 0.8,
   cooldownMs: 2500,
   onboardingComplete: false,
-  sttProvider: "deepgram",
+  // Chorus: offline NVIDIA Parakeet is the default English engine.
+  sttProvider: "parakeet",
+  engineMigration: 1,
 
   setDeepgramApiKey: (deepgramApiKey) => set({ deepgramApiKey }),
   setOpenaiApiKey: (openaiApiKey) => set({ openaiApiKey }),
@@ -62,6 +66,7 @@ const PERSISTED_KEYS = [
   "cooldownMs",
   "onboardingComplete",
   "sttProvider",
+  "engineMigration",
 ] as const satisfies readonly (keyof SettingsState)[]
 
 let tauriStore: Store | null = null
@@ -88,6 +93,13 @@ export function hydrateSettings(): Promise<void> {
         if (value !== undefined && value !== null) {
           ;(patch as Record<string, unknown>)[key] = value
         }
+      }
+      // Chorus: Whisper was the only offline engine before Parakeet. A
+      // "whisper" choice saved before Parakeet existed moves to Parakeet once
+      // (measured faster and at least as accurate). Settings saved since
+      // carry engineMigration, so choosing Whisper again is kept.
+      if (patch.engineMigration === undefined && patch.sttProvider === "whisper") {
+        patch.sttProvider = "parakeet"
       }
       if (Object.keys(patch).length > 0) {
         useSettingsStore.setState(patch)

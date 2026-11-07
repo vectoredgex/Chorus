@@ -22,6 +22,10 @@ async-trait = "0.1"
 # Whisper local STT (optional)
 rhema-audio = { path = "../audio", optional = true }
 
+# NVIDIA Parakeet local STT (optional), through sherpa-onnx. Links a
+# prebuilt static sherpa-onnx + onnxruntime downloaded at build time.
+sherpa-onnx = { version = "=2.0.1", optional = true }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"], optional = true }
 
@@ -32,6 +36,8 @@ whisper-rs = { version = "0.16", optional = true }
 default = ["rest-fallback"]
 rest-fallback = ["reqwest"]
 whisper = ["dep:whisper-rs", "rhema-audio"]
+# NVIDIA Parakeet (English, CPU). Shares Whisper's speech detection code.
+parakeet = ["whisper", "dep:sherpa-onnx"]
 # Run Whisper on an NVIDIA graphics card (needs the CUDA Toolkit to build).
 cuda = ["whisper", "whisper-rs/cuda"]
 # Run Whisper on any Vulkan graphics card: NVIDIA, AMD or Intel
@@ -45,3 +51,7 @@ required-features = ["whisper"]
 [[example]]
 name = "whisper_lines"
 required-features = ["whisper"]
+
+[[example]]
+name = "parakeet_lines"
+required-features = ["parakeet"]

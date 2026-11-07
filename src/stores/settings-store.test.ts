@@ -36,6 +36,7 @@ describe("settings store", () => {
     mockGet.mockImplementation(async (key: string) => {
       if (key === "gain") return 2.5
       if (key === "sttProvider") return "whisper"
+      if (key === "engineMigration") return 1
       if (key === "deepgramApiKey") return "dg-key"
       return null
     })
@@ -50,6 +51,26 @@ describe("settings store", () => {
     // Defaults remain for keys with null
     expect(state.autoMode).toBe(false)
     expect(state.confidenceThreshold).toBe(0.8)
+  })
+
+  it("moves a Whisper choice saved before Parakeet existed to Parakeet", async () => {
+    mockGet.mockImplementation(async (key: string) =>
+      key === "sttProvider" ? "whisper" : null
+    )
+
+    const { hydrateSettings, useSettingsStore } = await import("./settings-store")
+    await hydrateSettings()
+
+    expect(useSettingsStore.getState().sttProvider).toBe("parakeet")
+  })
+
+  it("defaults to the offline Parakeet engine", async () => {
+    mockGet.mockResolvedValue(null)
+
+    const { hydrateSettings, useSettingsStore } = await import("./settings-store")
+    await hydrateSettings()
+
+    expect(useSettingsStore.getState().sttProvider).toBe("parakeet")
   })
 
   it("hydrate with no persisted values falls back to defaults", async () => {

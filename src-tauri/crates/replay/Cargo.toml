@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
-rhema-stt = { path = "../stt", features = ["whisper"] }
+rhema-stt = { path = "../stt", features = ["whisper", "parakeet"] }
 rhema-detection = { path = "../detection" }
 tokio = { workspace = true }
 crossbeam-channel = "0.5"

@@ -73,8 +73,10 @@ tauri-plugin-fs = "2"
 fontdb = "0.24.0"
 
 [features]
-default = ["whisper"]
+default = ["whisper", "parakeet"]
 whisper = ["rhema-stt/whisper"]
+# NVIDIA Parakeet speech engine (English, runs on the CPU).
+parakeet = ["whisper", "rhema-stt/parakeet"]
 cuda = ["whisper", "rhema-stt/cuda"]
 vulkan = ["whisper", "rhema-stt/vulkan"]
 

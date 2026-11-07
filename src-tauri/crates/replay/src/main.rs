@@ -7,7 +7,9 @@
 //! expected list.
 //!
 //! Usage:
-//!   chorus-replay <model.bin> <threads> <recording.wav> <expected.txt>
+//!   chorus-replay <model.bin | parakeet_model_dir> <threads> <recording.wav> <expected.txt>
+//!
+//! A Whisper model file runs Whisper; a Parakeet model folder runs Parakeet.
 //!
 //! The recording must be 16 kHz, mono, 16-bit PCM WAV. `expected.txt` lists
 //! one reference per line, in order ("Romans 8:28", "Psalms 23"); blank
@@ -85,7 +87,15 @@ async fn main() {
         .map(String::from)
         .collect();
 
-    let provider = WhisperProvider::new(args[1].clone().into(), Some("en".into()), threads);
+    // A model folder means Parakeet; a model file means Whisper.
+    let model = std::path::PathBuf::from(&args[1]);
+    let provider: Box<dyn SttProvider> = if model.is_dir() {
+        println!("engine: parakeet ({})", model.display());
+        Box::new(rhema_stt::ParakeetProvider::new(model, threads))
+    } else {
+        println!("engine: whisper ({})", model.display());
+        Box::new(WhisperProvider::new(model, Some("en".into()), threads))
+    };
     let (audio_tx, audio_rx) = crossbeam_channel::bounded::<Vec<i16>>(1000);
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<TranscriptEvent>(64);
 
