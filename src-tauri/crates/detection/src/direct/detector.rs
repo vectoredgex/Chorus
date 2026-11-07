@@ -2678,4 +2678,17 @@ mod tests {
         // never the old Psalms 53.
         assert_eq!(shown, vec!["13 15:5"]);
     }
+
+    #[test]
+    fn malayalam_live_session_three() {
+        let a = ml_session(&["സങ്കീർത്തനം", "അമ്പത്തിയെട്ട്", "വാക്യം ഏഴ്", "ഉ"]);
+        let b = ml_session(&[
+            "വെളിപ്പാട് ഇരുപത്തഞ്ച്", "ഇ ഇ സി ദ വാഷ എൻ ചാറ്റർ",
+            "ഇവിട ചെയ്ത് വഷാണ് ഐറ്റ് ശ വെളിപ്പാട് ഇരുപത്തഞ്ച്", "വാക്യം അഞ്ച്", "അ",
+            "ആ", "വെളിപ്പാട് അമ്പത്തി അഞ്ച്ച്", "വാക്യം പതിനഞ്ച്",
+        ]);
+        assert_eq!(a, vec!["19 58:7".to_string()]);
+        // Revelation has 22 chapters: chapters 25 and 55 must show nothing.
+        assert!(b.is_empty(), "{b:?}");
+    }
 }
