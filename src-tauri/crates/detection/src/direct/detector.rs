@@ -1154,15 +1154,27 @@ impl DirectDetector {
 
 /// Partials of one utterance share most of their opening text.
 fn is_same_utterance(prev: &str, text: &str) -> bool {
-    let shorter = prev.len().min(text.len());
-    if shorter < 4 {
+    // Compare words, not characters: Parakeet re-punctuates and re-cases
+    // earlier words between partials ("Now look at" -> "Now, look at"), and
+    // a character comparison then took the growing utterance for a new one,
+    // so "the next verse" advanced again on every partial (measured in the
+    // sermon replay: John 3:17, then 3:19, then 3:21).
+    fn words(s: &str) -> Vec<String> {
+        s.split_whitespace()
+            .map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
+            .filter(|w| !w.is_empty())
+            .collect()
+    }
+    let (a, b) = (words(prev), words(text));
+    let shorter = a.len().min(b.len());
+    if shorter == 0 {
         return false;
     }
-    let common = prev
-        .chars()
-        .zip(text.chars())
-        .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
-        .count();
+    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    // Short partials ("Now look") need every word to agree.
+    if shorter < 3 {
+        return common == shorter;
+    }
     common * 10 >= shorter * 6
 }
 
@@ -2018,6 +2030,34 @@ mod tests {
         let mut detector = DirectDetector::new();
         let results = detector.detect("Revelation 20:22");
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_repunctuated_partials_are_one_utterance() {
+        assert!(is_same_utterance(
+            "Now look at the very next verse.",
+            "Now, look at the very next verse. Paul says the same thing in Romans chapter."
+        ));
+        assert!(!is_same_utterance("Now look at the very next verse.", "And we know that all things"));
+    }
+
+    #[test]
+    fn test_next_verse_advances_once_across_partials() {
+        let mut detector = DirectDetector::new();
+        assert_eq!(detector.detect("Please open your Bibles with me to John chapter three, verse sixteen.").len(), 1);
+        detector.detect("For God so loved the world, that he gave his only Son.");
+        let mut shown = Vec::new();
+        for partial in [
+            "Now look at the very next verse.",
+            "Now, look at the very next verse. Paul says the same.",
+            "Now look at the very next verse. Paul says the same thing in Romans chapter.",
+            "Now, look at the very next verse. Paul says the same thing in Romans chapter 8.",
+        ] {
+            for d in detector.detect(partial) {
+                shown.push((d.verse_ref.chapter, d.verse_ref.verse_start));
+            }
+        }
+        assert!(shown.iter().all(|&(c, v)| c == 3 && v == 17), "{shown:?}");
     }
 
     #[test]
