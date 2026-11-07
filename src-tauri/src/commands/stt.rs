@@ -165,8 +165,50 @@ pub async fn start_transcription(
 
             Box::new(rhema_stt::ParakeetProvider::new(model_dir, n_threads))
         }
+        #[cfg(feature = "parakeet")]
+        "malayalam" => {
+            // AI4Bharat IndicConformer, Malayalam. Same engine as Parakeet.
+            // Dev: {CARGO_MANIFEST_DIR}/../models/malayalam/<model>/
+            // Prod: resource_dir()/models/malayalam/<model>/
+            use rhema_stt::parakeet::{model_present_for, MALAYALAM_DIR_NAME};
+            use rhema_stt::SherpaModel;
+            let model_dir = {
+                let dev_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("models")
+                    .join("malayalam")
+                    .join(MALAYALAM_DIR_NAME);
+                if model_present_for(SherpaModel::IndicConformerMalayalam, &dev_dir) {
+                    dev_dir
+                } else {
+                    app.path()
+                        .resource_dir()
+                        .map(|p| p.join("models").join("malayalam").join(MALAYALAM_DIR_NAME))
+                        .ok()
+                        .filter(|p| model_present_for(SherpaModel::IndicConformerMalayalam, p))
+                        .ok_or_else(|| {
+                            "Malayalam model not found. Run: bun run download:malayalam".to_string()
+                        })?
+                }
+            };
+
+            let parallelism = std::thread::available_parallelism()
+                .map_or(4, usize::from);
+            let n_threads = i32::try_from(parallelism / 2).unwrap_or(2).max(1);
+
+            log::info!(
+                "Starting Malayalam (IndicConformer) transcription: model={}, threads={n_threads}, device_id={device_id:?}",
+                model_dir.display()
+            );
+
+            Box::new(rhema_stt::ParakeetProvider::with_model(
+                SherpaModel::IndicConformerMalayalam,
+                model_dir,
+                n_threads,
+            ))
+        }
         #[cfg(not(feature = "parakeet"))]
-        "parakeet" => {
+        "parakeet" | "malayalam" => {
             return Err(
                 "Parakeet support not compiled. Rebuild with --features parakeet".into(),
             );

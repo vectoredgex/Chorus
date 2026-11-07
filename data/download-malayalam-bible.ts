@@ -91,6 +91,14 @@ const BOOKS: Record<string, [number, string, string]> = {
   REV: [66, "വെളിപ്പാട്", "വെളി"],
 }
 
+// Other spellings of the book codes some eBible files use.
+const ALT_CODES: Record<string, string> = {
+  JUG: "JDG", RUTH: "RUT", "1SM": "1SA", "2SM": "2SA", "1KG": "1KI", "2KG": "2KI", PSM: "PSA",
+  PRV: "PRO", SOS: "SNG", SON: "SNG", EZE: "EZK", JOE: "JOL", JOEL: "JOL", NAH: "NAM", NAHUM: "NAM",
+  MAR: "MRK", MRK: "MRK", JOH: "JHN", JOHN: "JHN", ACTS: "ACT", PHI: "PHP", PHIL: "PHP", JAM: "JAS",
+  "1JO": "1JN", "2JO": "2JN", "3JO": "3JN", JDE: "JUD", JUDE: "JUD", PHL: "PHM", TTS: "TIT",
+}
+
 async function download(): Promise<string> {
   mkdirSync(WORK_DIR, { recursive: true })
   const zip = join(WORK_DIR, "mal2015_vpl.zip")
@@ -116,16 +124,21 @@ interface Verse {
 
 export function parseVpl(raw: string): Verse[] {
   const out: Verse[] = []
+  const unknown = new Set<string>()
   for (const line of raw.split(/\r?\n/)) {
     // "GEN 1:1 ആദിയിൽ ദൈവം ആകാശവും ഭൂമിയും സൃഷ്ടിച്ചു."
     const m = line.match(/^([1-3]?[A-Z]{2,3})\s+(\d+):(\d+)\s+(.*)$/)
     if (!m) continue
-    const book = BOOKS[m[1]]
-    if (!book) continue // apocrypha or front matter
+    const book = BOOKS[m[1]] ?? BOOKS[ALT_CODES[m[1]] ?? ""]
+    if (!book) {
+      unknown.add(m[1]) // apocrypha or front matter
+      continue
+    }
     const text = m[4].trim()
     if (!text) continue
     out.push({ book: book[0], chapter: Number(m[2]), verse: Number(m[3]), text })
   }
+  if (unknown.size > 0) console.log(`  Skipped book codes: ${[...unknown].join(", ")}`)
   return out
 }
 

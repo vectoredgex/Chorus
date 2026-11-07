@@ -32,7 +32,14 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     assert!(args.len() >= 4, "usage: parakeet_lines <model_dir> <threads> <clip.wav>...");
     let threads: i32 = args[2].parse().expect("threads");
-    let rec = rhema_stt::parakeet::load_recognizer(Path::new(&args[1]), threads).expect("load model");
+    // A Malayalam IndicConformer folder is recognised by its files.
+    let dir = Path::new(&args[1]);
+    let model = if rhema_stt::parakeet::model_present_for(rhema_stt::SherpaModel::IndicConformerMalayalam, dir) {
+        rhema_stt::SherpaModel::IndicConformerMalayalam
+    } else {
+        rhema_stt::SherpaModel::ParakeetEnglish
+    };
+    let rec = rhema_stt::parakeet::load_recognizer_for(model, dir, threads).expect("load model");
     let _ = rhema_stt::parakeet::transcribe(&rec, &vec![0.0f32; 16_000]);
     for path in &args[3..] {
         let audio = read_wav(path);

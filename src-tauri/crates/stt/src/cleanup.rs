@@ -9,7 +9,8 @@
 /// Lowercase and strip punctuation for comparing words.
 fn norm(w: &str) -> String {
     w.chars()
-        .filter(|c| c.is_alphanumeric())
+        // Malayalam vowel signs are not "alphanumeric" but are part of the word.
+        .filter(|c| c.is_alphanumeric() || ('\u{0D00}'..='\u{0D7F}').contains(c))
         .flat_map(char::to_lowercase)
         .collect()
 }

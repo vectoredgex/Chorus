@@ -42,4 +42,4 @@ pub use types::{SttConfig, TranscriptEvent, Word};
 pub use whisper::WhisperProvider;
 
 #[cfg(feature = "parakeet")]
-pub use parakeet::ParakeetProvider;
+pub use parakeet::{ParakeetProvider, SherpaModel};

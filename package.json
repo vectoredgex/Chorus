@@ -25,6 +25,7 @@
     "bench:search": "cd src-tauri && cargo run -p rhema-detection --features bench-bin --release --bin search_bench",
     "download:whisper": "bun run data/download-whisper-model.ts",
     "download:parakeet": "bun run data/download-parakeet-model.ts",
+    "download:malayalam": "bun run data/download-malayalam-model.ts",
     "download:malayalam-bible": "bun run data/download-malayalam-bible.ts",
     "download:ndi-sdk": "bun run data/download-ndi-sdk.ts",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
