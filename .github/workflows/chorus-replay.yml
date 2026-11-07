@@ -90,6 +90,10 @@ jobs:
       - name: Make test sermon
         run: python3 scripts/chorus/make-sermon.py sermon ${{ steps.piper.outputs.model }}
 
+      - name: Fresh sherpa-onnx download (cached builds can lose its libraries)
+        shell: bash
+        run: rm -rf src-tauri/target/sherpa-onnx-prebuilt src-tauri/target/*/build/sherpa-onnx-sys-*
+
       - name: Build replay
         working-directory: src-tauri
         run: cargo build -p chorus-replay

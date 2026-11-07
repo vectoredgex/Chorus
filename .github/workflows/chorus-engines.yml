@@ -93,6 +93,10 @@ jobs:
               -ar 16000 -ac 1 -sample_fmt s16 "${f%.wav}_noisy.wav"
           done
 
+      - name: Fresh sherpa-onnx download (cached builds can lose its libraries)
+        shell: bash
+        run: rm -rf src-tauri/target/sherpa-onnx-prebuilt src-tauri/target/*/build/sherpa-onnx-sys-*
+
       - name: Build tools
         working-directory: src-tauri
         run: |

@@ -29,6 +29,10 @@ jobs:
           workspaces: src-tauri
           key: windows-stt
 
+      - name: Fresh sherpa-onnx download (cached builds can lose its libraries)
+        shell: bash
+        run: rm -rf src-tauri/target/sherpa-onnx-prebuilt src-tauri/target/*/build/sherpa-onnx-sys-*
+
       - name: Build speech crate with Parakeet (release)
         working-directory: src-tauri
         shell: bash
