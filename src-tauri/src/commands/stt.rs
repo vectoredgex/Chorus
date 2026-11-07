@@ -447,24 +447,18 @@ pub async fn start_transcription(
     // speaker keeps talking), and the entire post-final pipeline is ~50ms —
     // so finals-only detection made spoken references feel 3-5s slow. Direct
     // detection is ~1-3ms, cheap enough for every changed partial. Reading
-    // mode and the FTS pass stay finals-only. Identical repeated partials
-    // (Deepgram re-emits the same text ~1/s while audio continues) are
-    // skipped.
+    // mode and the FTS pass stay finals-only.
     //
     // Uses spawn_blocking so mutex locks and DB I/O don't starve the tokio
     // runtime (WebSocket readers, event emitters, etc.).
     let det_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut last_partial = String::new();
+        // Identical repeated partials are NOT skipped any more: the partial
+        // confirmer needs a second partial that reads the reference the same
+        // way, and an identical one is exactly that. Skipping it made the
+        // verse wait for the final (live test: Exodus 2:3 took 2 s instead of
+        // ~0.7 s). Direct detection is cheap enough to run on every partial.
         while let Some((transcript, is_final)) = detect_rx.recv().await {
-            if is_final {
-                last_partial.clear();
-            } else {
-                if transcript == last_partial {
-                    continue;
-                }
-                last_partial = transcript.clone();
-            }
             let app_clone = det_app.clone();
             let _ = tokio::task::spawn_blocking(move || {
                 log::info!(
@@ -619,9 +613,10 @@ fn run_direct_detection(app: &AppHandle, transcript: &str, is_final: bool) -> bo
         }
     };
     let direct_results = detector.detect_utterance(transcript, is_final);
+    let settled = detector.settled().to_vec();
     drop(detector); // Release immediately
     let direct_results = match PARTIAL_CONFIRMER.lock() {
-        Ok(mut c) => c.filter(direct_results, is_final),
+        Ok(mut c) => c.filter_settled(direct_results, is_final, &settled),
         Err(_) => direct_results,
     };
 

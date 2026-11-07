@@ -21,13 +21,29 @@ impl PartialConfirmer {
 
     /// Filter detections from one transcript event.
     pub fn filter(&mut self, results: Vec<Detection>, is_final: bool) -> Vec<Detection> {
+        self.filter_settled(results, is_final, &[])
+    }
+
+    /// Like [`filter`], but references in `settled` are released at once:
+    /// the speaker has already moved on past them ("Joshua 1 9, be strong
+    /// and"), so the numbers are no longer growing and a second partial
+    /// would only add ~0.6-1 s of delay.
+    pub fn filter_settled(
+        &mut self,
+        results: Vec<Detection>,
+        is_final: bool,
+        settled: &[(i32, i32, i32)],
+    ) -> Vec<Detection> {
         if is_final {
             self.seen.clear();
             return results;
         }
         let key = |d: &Detection| (d.verse_ref.book_number, d.verse_ref.chapter, d.verse_ref.verse_start);
         let current: Vec<(i32, i32, i32)> = results.iter().map(key).collect();
-        let confirmed: Vec<Detection> = results.into_iter().filter(|d| self.seen.contains(&key(d))).collect();
+        let confirmed: Vec<Detection> = results
+            .into_iter()
+            .filter(|d| self.seen.contains(&key(d)) || settled.contains(&key(d)))
+            .collect();
         self.seen = current;
         confirmed
     }
@@ -62,6 +78,13 @@ mod tests {
         assert!(c.filter(vec![det(3, 28)], false).is_empty()); // misheard, held
         assert!(c.filter(vec![det(3, 16)], false).is_empty()); // different, held
         assert_eq!(c.filter(vec![det(3, 16)], false).len(), 1); // agrees, shown
+    }
+
+    #[test]
+    fn settled_reference_is_shown_from_the_first_partial() {
+        let mut c = PartialConfirmer::new();
+        assert_eq!(c.filter_settled(vec![det(3, 16)], false, &[(43, 3, 16)]).len(), 1);
+        assert!(c.filter_settled(vec![det(3, 17)], false, &[(43, 3, 16)]).is_empty());
     }
 
     #[test]
