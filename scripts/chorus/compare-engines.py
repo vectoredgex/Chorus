@@ -4,7 +4,8 @@ Input: files from `detect-lines` (<clip>\t<seconds>\t<verses>), one per
 engine and sound condition, named <engine>_<condition>.tsv. Clips are the
 per-line files from make-sermon.py (lineNN.wav / lineNN_noisy.wav).
 
-Prints a table: verses right, missed, wrong verses shown, and the average
+Prints a table: verses right, missed, wrong verses shown (with the lines
+they came from), and the average
 and slowest transcription time per line.
 Usage: python3 compare-engines.py <sermon_dir> <result.tsv>...
 """
