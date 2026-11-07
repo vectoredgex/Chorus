@@ -748,12 +748,7 @@ impl Detector {
         // "the book of <misheard word> chapter 4 verse 3": the speaker named a
         // new book that the speech engine lost. Borrowing the last book here
         // shows a confidently wrong verse, so wait for a clear repeat instead.
-        let named_lost_book = (1..=3).any(|b| {
-            i > b
-                && matches!(tok(t, i - b - 1), "book" | "gospel" | "epistle" | "letter")
-                && tok(t, i - b) == "of"
-        });
-        if named_lost_book {
+        if named_lost_book(t, i) {
             return None;
         }
         // "chapter 4 verse 5", "chapter 5"
@@ -786,6 +781,26 @@ impl Detector {
 /// True when the text talks about a verse of a song, not of Scripture:
 /// "we sang verse two of the hymn", "the second verse of this song".
 /// Callers should not resolve any reference from such text.
+/// "the book of <word that is not a book> chapter ...": a book was named but
+/// the speech engine lost it, so the last book must not be borrowed.
+fn named_lost_book(t: &[String], i: usize) -> bool {
+    (1..=3).any(|b| {
+        i > b
+            && matches!(tok(t, i - b - 1), "book" | "gospel" | "epistle" | "letter")
+            && tok(t, i - b) == "of"
+    })
+}
+
+/// True when the text names a book that was not heard ("turn to the book of
+/// this chapter 4 verse 3"). Other detectors use it to avoid filling in the
+/// last book themselves.
+pub fn names_unheard_book(text: &str) -> bool {
+    let t = normalize(text);
+    (0..t.len()).any(|i| {
+        CHAPTER_WORDS.contains(&tok(&t, i)) && named_lost_book(&t, i) && match_book(&t, i - 1).is_none()
+    })
+}
+
 pub fn is_song_verse(text: &str) -> bool {
     const MUSIC: &[&str] = &["hymn", "hymns", "song", "songs", "chorus", "carol", "anthem", "poem", "hymnal"];
     let t = normalize(text);

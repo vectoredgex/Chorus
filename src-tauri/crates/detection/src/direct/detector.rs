@@ -627,6 +627,10 @@ impl DirectDetector {
     }
 
     fn detect_inner(&mut self, text: &str, same_utterance: bool) -> Vec<Detection> {
+        // What an earlier partial of this utterance found. If this rewrite of
+        // the utterance finds nothing ("Till next shows." -> "Tell next."),
+        // that earlier result still stands.
+        let found_so_far = self.chorus.last();
         if same_utterance {
             self.chorus.set_last(self.chorus_snapshot);
         } else {
@@ -640,7 +644,12 @@ impl DirectDetector {
         }
 
         let chorus_hits = self.chorus_hits(text);
-        let out = if chorus_hits.is_empty() {
+        let out = if chorus_hits.is_empty() && chorus_refparse::names_unheard_book(text) {
+            // "the book of <misheard> chapter 4 verse 3": wait for a clear
+            // repeat rather than fill in the last book (live test: Luke 4:3
+            // shown for Ezekiel 4:3).
+            Vec::new()
+        } else if chorus_hits.is_empty() {
             self.detect_base(text)
         } else {
             self.incomplete = None;
@@ -654,6 +663,8 @@ impl DirectDetector {
         };
         if let Some(d) = out.last() {
             self.chorus.set_last(Some(to_chorus_ref(&d.verse_ref)));
+        } else if same_utterance {
+            self.chorus.set_last(found_so_far);
         }
         out
     }
