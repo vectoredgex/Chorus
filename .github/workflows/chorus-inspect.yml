@@ -29,3 +29,10 @@ jobs:
           echo "==== FullParams vad"; grep -rnE "fn (set_)?vad|enable_vad|vad_model" "$d/src" | head -30
           s=$(ls -d ~/.cargo/registry/src/*/whisper-rs-sys-0.15* | head -1)
           echo "==== whisper.cpp vad params (C)"; grep -nA30 "struct whisper_vad_params {" "$s"/whisper.cpp/include/whisper.h | head -40
+
+      - name: Rust crates for Parakeet / sherpa-onnx
+        continue-on-error: true
+        run: |
+          cargo search sherpa --limit 20
+          cargo search parakeet --limit 20
+          cargo search "onnx asr" --limit 10
