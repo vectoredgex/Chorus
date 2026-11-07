@@ -10,7 +10,14 @@
  */
 
 import { join } from "node:path"
-import { existsSync, mkdirSync, createWriteStream, renameSync, rmSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  createWriteStream,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs"
 import { spawnSync } from "node:child_process"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
@@ -20,37 +27,68 @@ const MODEL_DIR = join(MODELS_DIR, MODEL_NAME)
 const FILES = ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
 const ARCHIVE_URL = `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/${MODEL_NAME}.tar.bz2`
 
+// Downloads with resume: a dropped connection (common on home Wi-Fi for a
+// ~480 MB file) picks up where it stopped instead of starting again.
 async function download(url: string, dest: string) {
-  const response = await fetch(url, { redirect: "follow" })
+  const tmp = dest + ".tmp"
+  const MAX_ATTEMPTS = 20
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const have = existsSync(tmp) ? statSync(tmp).size : 0
+    try {
+      const done = await downloadFrom(url, tmp, have)
+      if (done) {
+        renameSync(tmp, dest)
+        console.log("")
+        return
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.log(`\n  Connection dropped (${msg}). Resuming (try ${attempt + 1}/${MAX_ATTEMPTS})...`)
+      await new Promise((r) => setTimeout(r, Math.min(2000 * attempt, 15000)))
+    }
+  }
+  throw new Error(`Download kept failing after ${MAX_ATTEMPTS} tries. Run the same command again to continue.`)
+}
+
+// Returns true once the whole file is on disk.
+async function downloadFrom(url: string, tmp: string, have: number): Promise<boolean> {
+  const headers: Record<string, string> = have > 0 ? { Range: `bytes=${have}-` } : {}
+  const response = await fetch(url, { redirect: "follow", headers })
+  if (response.status === 416) return true // already complete
   if (!response.ok) {
     throw new Error(`Download failed: ${response.status} ${response.statusText}`)
   }
-  const totalBytes = Number(response.headers.get("content-length") ?? 0)
+  const resumed = response.status === 206
+  const start = resumed ? have : 0
+  const totalBytes = start + Number(response.headers.get("content-length") ?? 0)
   const totalMB = (totalBytes / 1_000_000).toFixed(0)
-  console.log(`Size: ${totalMB} MB`)
-  const writer = createWriteStream(dest + ".tmp")
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error("No response body")
-  let downloaded = 0
-  let lastPercent = -1
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    writer.write(Buffer.from(value))
-    downloaded += value.byteLength
-    const percent = totalBytes > 0 ? Math.floor((downloaded / totalBytes) * 100) : 0
-    if (percent !== lastPercent && percent % 5 === 0) {
-      process.stdout.write(`\r  ${percent}% (${(downloaded / 1_000_000).toFixed(0)}/${totalMB} MB)`)
-      lastPercent = percent
-    }
-  }
-  writer.end()
-  await new Promise<void>((resolve, reject) => {
+  if (start === 0) console.log(`Size: ${totalMB} MB`)
+  const writer = createWriteStream(tmp, { flags: resumed ? "a" : "w" })
+  const finished = new Promise<void>((resolve, reject) => {
     writer.on("finish", resolve)
     writer.on("error", reject)
   })
-  renameSync(dest + ".tmp", dest)
-  console.log("")
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error("No response body")
+  let downloaded = start
+  let lastPercent = -1
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      writer.write(Buffer.from(value))
+      downloaded += value.byteLength
+      const percent = totalBytes > 0 ? Math.floor((downloaded / totalBytes) * 100) : 0
+      if (percent !== lastPercent && percent % 5 === 0) {
+        process.stdout.write(`\r  ${percent}% (${(downloaded / 1_000_000).toFixed(0)}/${totalMB} MB)`)
+        lastPercent = percent
+      }
+    }
+  } finally {
+    writer.end()
+    await finished
+  }
+  return totalBytes === 0 || downloaded >= totalBytes
 }
 
 async function main() {
