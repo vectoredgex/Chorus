@@ -1,0 +1,59 @@
+name: Chorus Malayalam Bible
+
+# Checks that the Malayalam Bible (Sathyavedapusthakam 1910, eBible.org)
+# downloads and loads into a Chorus Bible database, and prints its licence
+# and a few well-known verses.
+
+on:
+  push:
+    branches: ["chorus/**"]
+    paths:
+      - "data/download-malayalam-bible.ts"
+      - "data/schema.sql"
+      - ".github/workflows/chorus-ml-bible.yml"
+  workflow_dispatch:
+
+jobs:
+  bible:
+    name: Load Malayalam Bible
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+      - name: Licence (eBible.org details page)
+        continue-on-error: true
+        run: |
+          curl -sSL --retry 3 "https://ebible.org/find/details.php?id=mal1910" \
+            | sed 's/<[^>]*>/ /g' | tr -s ' \n' | grep -iE "public domain|copyright|licen|1910" | head -20
+      - name: Empty database with the Chorus schema
+        run: |
+          cat > /tmp/mkdb.ts <<'TS'
+          import { Database } from "bun:sqlite"
+          import { readFileSync } from "node:fs"
+          const db = new Database(process.argv[2], { create: true })
+          for (const s of readFileSync("data/schema.sql", "utf-8").split(";").map((x) => x.trim()).filter(Boolean)) db.exec(s + ";")
+          db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS verses_fts USING fts5(text, content='verses', content_rowid='id', tokenize='unicode61');")
+          TS
+          bun run /tmp/mkdb.ts /tmp/test.db
+      - name: Load (twice, to check re-running is safe)
+        run: |
+          bun run data/download-malayalam-bible.ts /tmp/test.db
+          bun run data/download-malayalam-bible.ts /tmp/test.db
+          ls data/sources/mal1910 && head -3 data/sources/mal1910/*_vpl.txt
+      - name: Check
+        run: |
+          cat > /tmp/check.ts <<'TS'
+          import { Database } from "bun:sqlite"
+          const db = new Database("/tmp/test.db")
+          const q = (s: string) => db.query(s).all()
+          console.log(q("SELECT abbreviation, title, language, license FROM translations"))
+          console.log(q("SELECT COUNT(*) AS verses, COUNT(DISTINCT book_number) AS books FROM verses"))
+          for (const [b, c, v] of [[43, 3, 16], [19, 23, 1], [45, 8, 28], [1, 1, 1], [66, 22, 21]])
+            console.log(q(`SELECT book_name, chapter, verse, text FROM verses WHERE book_number=${b} AND chapter=${c} AND verse=${v}`))
+          console.log("chapters per book (first 5):", q("SELECT book_number, MAX(chapter) AS ch FROM verses GROUP BY book_number LIMIT 5"))
+          console.log("search 'സ്നേഹിച്ചു':", q("SELECT COUNT(*) AS n FROM verses_fts WHERE verses_fts MATCH 'സ്നേഹിച്ചു'"))
+          TS
+          bun run /tmp/check.ts
