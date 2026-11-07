@@ -89,6 +89,8 @@ jobs:
           pip install --quiet soundfile numpy huggingface_hub
           case "${{ matrix.engine }}" in
             indicconformer*|omnilingual*) pip install --quiet sherpa-onnx ;;
+            koyal) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+               pip install --quiet "nemo_toolkit[asr]" ;;
             indic-transcribe) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet transformers sentencepiece accelerate ;;
             *) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu

@@ -52,7 +52,15 @@ pub fn norm(word: &str) -> String {
         }
     }
     let mut out = String::with_capacity(s.len() + 8);
+    let is_sign = |c: char| matches!(c, '\u{0D3E}'..='\u{0D4C}' | '\u{0D57}');
+    let mut prev = ' ';
     for c in s.chars() {
+        // Two different vowel signs in a row ("അമ്പത്തിുമൂന്നാം"): keep the
+        // first.
+        if is_sign(c) && is_sign(prev) {
+            continue;
+        }
+        prev = c;
         match c {
             '\u{0D7A}' => out.push_str("ണ്"),
             '\u{0D7B}' => out.push_str("ന്"),
@@ -320,7 +328,8 @@ fn vowel_sign(c: char) -> Option<&'static str> {
 fn join(prefix: &str, s: &str) -> Vec<String> {
     let first = s.chars().next().unwrap();
     let rest: String = s.chars().skip(1).collect();
-    let mut v = vec![format!("{prefix}\u{0D3F}{s}")];
+    // "ഇരുപത്തിമൂന്ന്", and with "ു": "അമ്പത്തുമൂന്ന്".
+    let mut v = vec![format!("{prefix}\u{0D3F}{s}"), format!("{prefix}\u{0D41}{s}")];
     if let Some(sign) = vowel_sign(first) {
         v.push(format!("{prefix}{sign}{rest}"));
         v.push(format!("{prefix}\u{0D3F}യ{sign}{rest}"));
@@ -376,7 +385,7 @@ const CARDINAL_ENDINGS: &[&str] = &[
     "", "്", "ു", "ും", "ില്", "ിലെ", "ിന്റെ", "ിലും", "ിലാണ്", "ില്നിന്ന്",
 ];
 const ORDINAL_ENDINGS: &[&str] = &[
-    "ാം", "ാമ", "ാമത്തെ", "ാമത്തേ", "ാമത്", "ാമതു", "ാമത്തില്", "ാമത്തിലെ", "ാമതായി", "ാമത്തേത്",
+    "ാം", "ാമ", "ാ", "ാമത്തെ", "ാമത്തേ", "ാമത്", "ാമതു", "ാമത്തില്", "ാമത്തിലെ", "ാമതായി", "ാമത്തേത്",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -484,7 +493,7 @@ fn classify(word: &str) -> Vec<(String, Tok)> {
 /// it: its first vowel turned into a sign ("റോമരെട്ടാം"), swallowed by the
 /// vowel before it ("യശ്യാമ്പത്തി" = യെശയ്യാ അമ്പത്തി), or after a glide
 /// ("അദ്ധ്യായമെട്ടാം", "അധ്യായവട്ടാം").
-fn number_spellings(rest: &str) -> Vec<String> {
+fn number_spellings(rest: &str, lost_vowel: bool) -> Vec<String> {
     let mut chars = rest.chars();
     let Some(first) = chars.next() else { return vec![] };
     let after = chars.as_str();
@@ -497,6 +506,12 @@ fn number_spellings(rest: &str) -> Vec<String> {
         return v;
     }
     v.push(format!("അ{rest}"));
+    // The number's first vowel lost: "റോമട്ടാം" = റോമ(ർ) എട്ടാം.
+    if lost_vowel {
+        for iv in ['എ', 'ഇ', 'ഒ'] {
+            v.push(format!("{iv}{rest}"));
+        }
+    }
     if matches!(first, 'വ' | 'യ' | 'മ') {
         let mut c2 = after.chars();
         match c2.next().and_then(independent_vowel) {
@@ -513,8 +528,8 @@ fn number_spellings(rest: &str) -> Vec<String> {
 }
 
 /// A number, or a tens word that joins the next number ("അമ്പത്തി").
-fn number_part(rest: &str) -> Option<(String, Tok)> {
-    for s in number_spellings(rest) {
+fn number_part(rest: &str, lost_vowel: bool) -> Option<(String, Tok)> {
+    for s in number_spellings(rest, lost_vowel) {
         if let Some(n) = match_number(&s) {
             return Some((s, Tok::Num(n)));
         }
@@ -539,8 +554,7 @@ fn split_merged(w: &str, fuzzy: bool) -> Option<Vec<(String, Tok)>> {
         {
             continue;
         }
-        let Some(num) = number_part(&rest) else { continue };
-        let name = [head.clone(), format!("{head}{VIRAMA}"), format!("{head}ം")]
+        let exact = [head.clone(), format!("{head}{VIRAMA}"), format!("{head}ം")]
             .into_iter()
             .find_map(|h| {
                 if let Some(t @ Tok::Marker(_)) = match_word(&h) {
@@ -550,10 +564,16 @@ fn split_merged(w: &str, fuzzy: bool) -> Option<Vec<(String, Tok)>> {
                     return Some(Tok::Word(en.to_string()));
                 }
                 None
-            })
-            .or_else(|| fuzzy.then(|| fuzzy_book(&head)).flatten().map(|en| Tok::Word(en.to_string())));
-        if let Some(t) = name {
-            return Some(vec![(head, t), num]);
+            });
+        // A lost first vowel ("റോമട്ടാം") only after a name we know.
+        if let Some(t) = exact {
+            if let Some(num) = number_part(&rest, true) {
+                return Some(vec![(head, t), num]);
+            }
+        } else if fuzzy {
+            if let (Some(num), Some(en)) = (number_part(&rest, false), fuzzy_book(&head)) {
+                return Some(vec![(head, Tok::Word(en.to_string())), num]);
+            }
         }
     }
     None
@@ -577,9 +597,20 @@ fn independent_vowel(sign: char) -> Option<char> {
 /// dropped, similar consonants merged (ത/ഥ/ദ/ധ, ശ/ഷ/സ...), doubled
 /// consonants written once. "യോഹന്നാൻ" and "യോഹൻാൻ" both give "യഹന".
 fn skeleton(word: &str) -> Vec<char> {
+    skel(word, false)
+}
+
+/// Like [`skeleton`], but keeping പ/ഫ apart from ബ/ഭ/വ: "ഫിലിപ്പ" is
+/// then the start of ഫിലിപ്പിയർ, not വിലാപം.
+fn fine_skeleton(word: &str) -> Vec<char> {
+    skel(word, true)
+}
+
+fn skel(word: &str, fine: bool) -> Vec<char> {
     let mut out: Vec<char> = Vec::new();
     for (i, c) in norm(word).chars().enumerate() {
         let k = match c {
+            'ബ' | 'ഭ' | 'വ' if fine => 'വ',
             'ക' | 'ഖ' | 'ഗ' | 'ഘ' => 'ക',
             'ച' | 'ഛ' | 'ജ' | 'ഝ' => 'ച',
             'ട' | 'ഠ' | 'ഡ' | 'ഢ' => 'ട',
@@ -643,6 +674,18 @@ fn fuzzy_book_in(word: &str, numbered: bool) -> Option<&'static str> {
     }
     let sk = heard.last().unwrap().clone();
     let letters: Vec<char> = w.chars().collect();
+    // The start of exactly one book's name, sound for sound: "ഫിലിപ്പ",
+    // "കൊലോസ്", "പത്രോ".
+    let fine = fine_skeleton(&w);
+    if fine.len() >= 3 {
+        let mut hits = BOOKS
+            .iter()
+            .filter(|(en, _)| !numbered || is_family(en))
+            .filter(|(_, forms)| forms.iter().any(|f| fine_skeleton(&stem(f)).starts_with(&fine)));
+        if let (Some((en, _)), None) = (hits.next(), hits.next()) {
+            return Some(en);
+        }
+    }
     // Closest by sound; ties broken by spelling.
     let mut scored: Vec<((usize, usize), &'static str)> = BOOKS
         .iter()
@@ -669,19 +712,7 @@ fn fuzzy_book_in(word: &str, numbered: bool) -> Option<&'static str> {
         4..=5 => 1,
         _ => 2,
     } + usize::from(numbered);
-    if d <= allowed && scored[1].0 > scored[0].0 {
-        return Some(en);
-    }
-    // The start of one book's name and of no other: "കൊലോസ്", "പത്രോ".
-    if sk.len() >= 3 {
-        let mut hits = BOOKS.iter().filter(|(_, forms)| {
-            forms.iter().any(|f| skeleton(&stem(f)).starts_with(&sk))
-        });
-        if let (Some((en, _)), None) = (hits.next(), hits.next()) {
-            return Some(en);
-        }
-    }
-    None
+    (d <= allowed && scored[1].0 > scored[0].0).then_some(en)
 }
 
 /// A misheard chapter or verse word ("അത്യായം", "ബാക്കിയം"), judged by
@@ -873,6 +904,30 @@ pub fn rewrite(text: &str) -> (String, bool) {
         }
     }
 
+    // "അദ്ധ്യായം" with no number before it (the number was lost, or run
+    // into a name we could not split), and "<garbled> ദിനവൃത്താന്തം"
+    // (1 or 2 Chronicles? we cannot tell): the reference is lost.
+    for i in 0..toks.len() {
+        let bare_chapter = toks[i] == Tok::Marker("chapter")
+            && !words[i].starts_with("ചാപ്റ്റ")
+            && !(i > 0 && matches!(toks[i - 1], Tok::Num(_)));
+        let unnumbered = matches!(&toks[i], Tok::Word(w) if is_family(w) && w != "john")
+            && i > 0
+            && toks[i - 1] == Tok::Other
+            && compound_prefix(&words[i - 1], &Tok::Other).is_none();
+        if bare_chapter || unnumbered {
+            lost_reference = true;
+            let mut j = i;
+            while j < toks.len()
+                && (matches!(toks[j], Tok::Num(_) | Tok::Marker(_) | Tok::Other)
+                    || matches!(&toks[j], Tok::Word(w) if w == "to" || w == "and" || w.is_empty())
+                    || j == i)
+            {
+                toks[j] = Tok::Other;
+                j += 1;
+            }
+        }
+    }
     // Join split compounds: "ഇരുപത്തി മൂന്നാം", "ഇരുപത് മൂന്ന്",
     // "നൂറ്റി പത്തൊമ്പത്".
     let mut merged: Vec<Tok> = Vec::with_capacity(toks.len());
@@ -1017,7 +1072,10 @@ fn compound_prefix(word: &str, tok: &Tok) -> Option<(u32, u32)> {
         return None;
     }
     let w = norm(word);
-    let w = w.strip_suffix('\u{0D3F}').or_else(|| w.strip_suffix("\u{0D3F}യ"))?;
+    let w = w
+        .strip_suffix('\u{0D3F}')
+        .or_else(|| w.strip_suffix("\u{0D3F}യ"))
+        .or_else(|| w.strip_suffix('\u{0D41}'))?;
     if w == "നൂറ്റ" {
         return Some((100, 77));
     }

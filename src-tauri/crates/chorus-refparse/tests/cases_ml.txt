@@ -94,3 +94,13 @@
 പോവാർ പന്ത്രണ്ടൽ ഒന്നും രണ്ടും വാക്യങ്ങൾ => NONE
 ഇല്ലാത്ത അഞ്ചാം അധ്യായം ഇരുപത്തി രണ്ടും ഇരുപത്തി മൂന്നും വാക്യങ്ങൾ => NONE
 അതെ അധ്യായം പതിനാലാം ബാക്്യ => NONE
+
+# --- Fresh voices (deeper, higher): checks the fixes above generalise ----
+ഫിലിപ്പി നാലാം അധ്യായം പതിമൂന്നാം വാക്യം ഇങ്ങനെ പറയുന്നു => Philippians 4:13 [H]
+മത്തായിയുടെ സുവിശേഷം അഞ്ചാ അധ്യായം മൂന്നാം ഭാഗ്യം => Matthew 5:3 [H]
+ഇസിയ അമ്പത്തുമൂന്നാം അധ്യായം അഞ്ചാം വാക്യം => Isaiah 53:5 [H]
+# A chapter word with its number lost: nothing, and no follow-up.
+രോമരട്ട അദ്ധ്യായം ഇരുപത്തെട്ടാം വാക്യം => NONE
+അടുത്ത വാക്യം => NONE
+# "Chronicles" with its 1/2 garbled: we cannot tell which.
+രന ദിനവൃത്താന്തം ഏഴാം അധ്യായം പതിനാലാം വാക്കും => NONE

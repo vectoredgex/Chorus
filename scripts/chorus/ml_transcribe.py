@@ -15,6 +15,9 @@ Engines:
   omnilingual-300m    Meta Omnilingual ASR CTC 300M int8 (1,600 languages)
   omnilingual-1b      Meta Omnilingual ASR CTC 1B int8
                       (both sherpa-onnx, from the sherpa-onnx GitHub release)
+  koyal               Adalat AI Koyal Malayalam 120M (Conformer TDT-CTC,
+                      NeMo, Sept 2026). Gated: needs HF_TOKEN from an
+                      account that accepted its terms.
   indic-transcribe    Bodhan AI / AI4Bharat Indic-Transcribe core (1.2B,
                       Canary-based, Sept 2026). Gated: needs HF_TOKEN from an
                       account that accepted its licence.
@@ -128,6 +131,32 @@ def indic_transcribe(threads):
     return run
 
 
+def koyal(threads):
+    import glob
+    import os
+    import torch
+    from huggingface_hub import snapshot_download
+    import nemo.collections.asr as nemo_asr
+    torch.set_num_threads(threads)
+    d = snapshot_download("adalat-ai/koyal-ml-120m-1.0", token=os.environ.get("HF_TOKEN"))
+    nemo_files = glob.glob(os.path.join(d, "**", "*.nemo"), recursive=True)
+    if not nemo_files:
+        sys.exit("no .nemo file in koyal download: " + ", ".join(os.listdir(d)))
+    model = nemo_asr.models.ASRModel.restore_from(nemo_files[0], map_location="cpu")
+    model.eval()
+
+    def run(wav):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav") as f:
+            sf.write(f.name, wav, 16000)
+            out = model.transcribe([f.name], batch_size=1, verbose=False)
+        if isinstance(out, tuple):
+            out = out[0]
+        h = out[0]
+        return h if isinstance(h, str) else getattr(h, "text", str(h))
+    return run
+
+
 def main():
     engine, threads, clips = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
     if engine == "indicconformer":
@@ -142,6 +171,8 @@ def main():
         run = omnilingual("300M", threads)
     elif engine == "omnilingual-1b":
         run = omnilingual("1B", threads)
+    elif engine == "koyal":
+        run = koyal(threads)
     elif engine == "indic-transcribe":
         run = indic_transcribe(threads)
     elif engine == "whisper-turbo":
