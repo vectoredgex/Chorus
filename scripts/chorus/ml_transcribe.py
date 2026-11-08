@@ -1,7 +1,7 @@
 """Transcribe Malayalam test clips with one speech engine.
 
 Writes one row per clip to stdout: <clip>\t<seconds>\t<text>
-Models are downloaded from Hugging Face on first use (run this in CI; the
+Models are downloaded from Hugging Face on first use (gated ones need HF_TOKEN) (run this in CI; the
 cloud container cannot reach Hugging Face).
 
 Engines:
