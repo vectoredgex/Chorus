@@ -161,3 +161,11 @@
 # "മിക്ക" ("most") is an ordinary word: never Micah.
 മിക്ക രണ്ട് മൂന്ന് പേർ വന്നു => NONE
 ഉത്തമഗീതം രണ്ടാം രണ്ടിൻ്റെ പതിനഞ്ച് => Song of Solomon 2:15 [H]
+# How the fast IndicConformer engines write some names and numbers.
+ജോഹന്നാൻ മൂന്നാം അധ്യായം പതിനാറാം വാക്യം നമുക്ക് വായിക്കാം => John 3:16 [H]
+ഫിലിപ്പീവ് നാലാം അധ്യായം പതിമൂന്നാം വാക്യം ഇങ്ങനെ പറയുന്നു => Philippians 4:13 [H]
+ഇരങ്ങിയാവ് ഇരുപത്തൊമ്പതാം അധ്യായം പതിനൊന്നാം വാക്യം => Jeremiah 29:11 [H]
+യോശുവ ഒന്നാ അധ്യായം ഒമ്പതാവ് വാക്യം ബലവും ധൈര്യവുമുള്ളവനായിരി => Joshua 1:9 [H]
+ഒടുവിൽ വെളിപ്പാട് ഇരുപത്തൊന്നാം അത്യായം നാലം വാക്യം => Revelation 21:4 [H]
+# "Asia" with no chapter after it is not Isaiah.
+ഏഷ്യ ഒരു വലിയ ഭൂഖണ്ഡമാണ് => NONE
