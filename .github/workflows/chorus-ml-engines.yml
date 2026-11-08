@@ -75,7 +75,7 @@ jobs:
         # per line. Run them again with workflow_dispatch if ever needed.
         # koyal, indicconformer-rnnt and indic-transcribe are gated: they need the HF_TOKEN
         # repo secret.
-        engine: [indicconformer, koyal, indicconformer-rnnt, indic-transcribe]
+        engine: [indicconformer, indicconformer-rnnt, indic-transcribe, indic-transcribe-int8]
         voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
@@ -93,6 +93,7 @@ jobs:
             indicconformer-rnnt|indicconformer-ctc)
                pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet transformers "onnxruntime<1.23" ;;
+            indic-transcribe-int8) pip install --quiet "onnxruntime>=1.24" ;;
             indicconformer*|omnilingual*) pip install --quiet sherpa-onnx ;;
             koyal) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet "nemo_toolkit[asr]" ;;

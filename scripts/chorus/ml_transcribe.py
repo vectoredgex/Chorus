@@ -177,6 +177,62 @@ def indicconformer_official(decoder, threads):
     return run
 
 
+def indic_transcribe_onnx(threads):
+    """Indic-Transcribe as int8 ONNX for CPU (third-party export,
+    Mvkd2k06/indic-transcribe-core-onnx): encoder + cached decoder,
+    greedy decoding."""
+    import glob
+    import json
+    import os
+    import tarfile
+    import numpy as np
+    import onnxruntime as ort
+    tar = hf_hub_download("Mvkd2k06/indic-transcribe-core-onnx",
+                          "variants/int8/indic-transcribe-core-int8.tar")
+    root = os.path.join(os.path.dirname(tar), "int8-extracted")
+    if not os.path.isdir(root):
+        with tarfile.open(tar) as t:
+            t.extractall(root, filter="data")
+    find = lambda pat: sorted(glob.glob(os.path.join(root, "**", pat), recursive=True))[0]
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = threads
+    enc = ort.InferenceSession(find("encoder*.onnx"), opts, providers=["CPUExecutionProvider"])
+    dec = ort.InferenceSession(find("decoder*.onnx"), opts, providers=["CPUExecutionProvider"])
+    tok = json.load(open(find("tokenizer.json"), encoding="utf-8"))
+    for sess in (enc, dec):
+        print("io:", [(i.name, i.type, i.shape) for i in sess.get_inputs()],
+              [(o.name, o.type) for o in sess.get_outputs()], file=sys.stderr)
+    prompts = tok["prompts"]
+    prompt = list(prompts["ml"] if isinstance(prompts, dict) else prompts)
+    print("ml prompt:", prompt, file=sys.stderr)
+    pieces, special = tok["pieces"], tok["special_count"]
+    stop = {tok["eos_id"], tok["pad_id"]}
+    np_type = {"tensor(float)": np.float32, "tensor(float16)": np.float16,
+               "tensor(int64)": np.int64, "tensor(int32)": np.int32}
+    dtypes = {i.name: np_type.get(i.type, np.float32) for i in dec.get_inputs()}
+
+    def run(wav):
+        wav = np.asarray(wav, dtype=np.float32)
+        if len(wav) < 16000:
+            pad = 16000 - len(wav)
+            wav = np.pad(wav, (pad // 2, pad - pad // 2))
+        ck, cv = enc.run(None, {"audio": wav[None, :]})[:2]
+        empty = np.zeros((0, 24, 8, 128), dtype=dtypes.get("past_k", np.float32))
+        pk, pv, ids, out = empty, empty, prompt, []
+        for _ in range(256):
+            logits, nk, nv = dec.run(None, {
+                "input_ids": np.array([ids], dtype=dtypes.get("input_ids", np.int64)),
+                "past_k": pk, "past_v": pv, "cross_k": ck, "cross_v": cv})
+            pk, pv = np.concatenate([pk, nk]), np.concatenate([pv, nv])
+            t = int(np.argmax(logits[0]))
+            if t in stop:
+                break
+            out.append(t)
+            ids = [t]
+        return "".join(pieces[t] for t in out if t >= special).replace("\u2581", " ").strip()
+    return run
+
+
 def main():
     engine, threads, clips = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
     if engine == "indicconformer":
@@ -195,6 +251,8 @@ def main():
         run = indicconformer_official("rnnt", threads)
     elif engine == "indicconformer-ctc":
         run = indicconformer_official("ctc", threads)
+    elif engine == "indic-transcribe-int8":
+        run = indic_transcribe_onnx(threads)
     elif engine == "koyal":
         run = koyal(threads)
     elif engine == "indic-transcribe":
