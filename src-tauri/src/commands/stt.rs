@@ -234,7 +234,12 @@ pub async fn start_transcription(
             };
 
             // The decoder runs one word piece at a time; all cores help.
-            let n_threads = std::thread::available_parallelism().map_or(4, usize::from);
+            // CHORUS_IT_THREADS overrides, to compare speeds on a laptop.
+            let n_threads = std::env::var("CHORUS_IT_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, usize::from));
 
             log::info!(
                 "Starting Malayalam (Indic-Transcribe) transcription: model={}, threads={n_threads}, device_id={device_id:?}",

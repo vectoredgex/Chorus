@@ -2717,6 +2717,20 @@ mod tests {
         assert_eq!(c, vec!["9 1:3", "9 2:3", "9 2:5"]);
     }
 
+    /// Live test 2026-11-08 15:27 with Indic-Transcribe, which writes
+    /// "ൻ്റെ" for "ന്റെ" and splits references at pauses.
+    #[test]
+    fn malayalam_live_session_five() {
+        let a = ml_session(&["പുറപ്പാട് ഇരുപതിൻ്റെ പന്ത്രണ്ട്"]);
+        assert_eq!(a, vec!["2 20:12".to_string()]);
+        let b = ml_session(&["ലേവ്യ പുസ്തകം പതിനഞ്ചിൻ്റെ മൂന്ന്"]);
+        assert_eq!(b, vec!["3 15:3".to_string()]);
+        let c = ml_session(&["ആവർത്തന പുസ്തകം", "ഒന്നിൻ്റെ", "പതിനാല്"]);
+        assert_eq!(c, vec!["5 1:14".to_string()]);
+        let d = ml_session(&["പുറപ്പാട് ഇരുപത്", "പന്ത്രണ്ടാം വച വാക്യം"]);
+        assert_eq!(d, vec!["2 20:12".to_string()]);
+    }
+
     /// Live test 2026-11-07 17:56: "Second Chronicles fifteen" … "Five"
     /// showed 2 Chronicles 5:5. The partial "Five." moved the waiting
     /// reference to chapter 5 and its final then read verse 5.

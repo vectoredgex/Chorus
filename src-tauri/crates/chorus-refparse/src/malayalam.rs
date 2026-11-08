@@ -74,6 +74,11 @@ pub fn norm(word: &str) -> String {
             _ => out.push(c),
         }
     }
+    // A chillu followed by a virama ("ൻ്റെ", newer spelling of "ന്റെ")
+    // gives a doubled virama above.
+    while out.contains("\u{0D4D}\u{0D4D}") {
+        out = out.replace("\u{0D4D}\u{0D4D}", "\u{0D4D}");
+    }
     out
 }
 
