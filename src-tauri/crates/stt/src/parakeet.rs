@@ -50,7 +50,7 @@ const PARAKEET_PARTIALS: PartialTiming = PartialTiming {
 
 /// Malayalam: the same, but a quieter voice still counts as speech (half
 /// the level). At 0.01 a softly spoken reference was missed live.
-const MALAYALAM_PARTIALS: PartialTiming = PartialTiming {
+pub(crate) const MALAYALAM_PARTIALS: PartialTiming = PartialTiming {
     voice_rms: 0.005,
     ..PARAKEET_PARTIALS
 };

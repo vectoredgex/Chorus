@@ -251,6 +251,56 @@ pub async fn start_transcription(
 
             Box::new(rhema_stt::IndicTranscribeProvider::new(model_dir, n_threads))
         }
+        #[cfg(all(feature = "indic-transcribe", feature = "parakeet"))]
+        "malayalam-combo" => {
+            // IndicConformer previews while speaking, Indic-Transcribe finals.
+            use rhema_stt::parakeet::{model_present_for, MALAYALAM_DIR_NAME};
+            use rhema_stt::SherpaModel;
+            let find = |name: &str, present: &dyn Fn(&std::path::Path) -> bool, download: &str| {
+                let dev_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("models")
+                    .join("malayalam")
+                    .join(name);
+                if present(&dev_dir) {
+                    return Ok(dev_dir);
+                }
+                app.path()
+                    .resource_dir()
+                    .map(|p| p.join("models").join("malayalam").join(name))
+                    .ok()
+                    .filter(|p| present(p))
+                    .ok_or_else(|| format!("Malayalam model not found. Run: bun run {download}"))
+            };
+            let fast_dir = find(
+                MALAYALAM_DIR_NAME,
+                &|p| model_present_for(SherpaModel::IndicConformerMalayalam, p),
+                "download:malayalam",
+            )?;
+            let accurate_dir = find(
+                rhema_stt::indic_transcribe::DIR_NAME,
+                &|p| rhema_stt::indic_transcribe::model_present(p),
+                "download:malayalam-it",
+            )?;
+            // They take turns, so each may use about one thread per core.
+            let half = (std::thread::available_parallelism().map_or(8, usize::from) / 2).max(2);
+            let accurate_threads = std::env::var("CHORUS_IT_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(half);
+            let fast_threads = i32::try_from(half).unwrap_or(2);
+            log::info!(
+                "Starting Malayalam (fast + accurate) transcription: fast={} ({fast_threads} threads), accurate={} ({accurate_threads} threads), device_id={device_id:?}",
+                fast_dir.display(),
+                accurate_dir.display()
+            );
+            Box::new(rhema_stt::MalayalamComboProvider::new(fast_dir, accurate_dir, fast_threads, accurate_threads))
+        }
+        #[cfg(not(all(feature = "indic-transcribe", feature = "parakeet")))]
+        "malayalam-combo" => {
+            return Err("Malayalam fast + accurate needs --features parakeet,indic-transcribe".into());
+        }
         #[cfg(not(feature = "indic-transcribe"))]
         "malayalam-it" => {
             return Err("Indic-Transcribe support not compiled. Rebuild with --features indic-transcribe".into());

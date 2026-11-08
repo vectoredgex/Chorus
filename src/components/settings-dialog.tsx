@@ -256,7 +256,7 @@ async function matchBibleToEngine(provider: SttProvider) {
       invoke<number>("get_active_translation"),
     ])
     const current = translations.find((t) => t.id === active)
-    const wantMalayalam = provider === "malayalam" || provider === "malayalam-it"
+    const wantMalayalam = provider === "malayalam" || provider === "malayalam-it" || provider === "malayalam-combo"
     if ((current?.language === "ml") === wantMalayalam) return
     const target = wantMalayalam
       ? translations.find((t) => t.language === "ml")
@@ -378,6 +378,26 @@ function SpeechSection() {
                 Hears Malayalam much better in echoey or noisy rooms, but each
                 sentence takes about a second longer. Fully offline. Set up
                 once with: bun run download:malayalam-it
+              </p>
+            </div>
+          </label>
+
+          {/* Malayalam (local, both engines) */}
+          <label
+            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-data-[state=checked]:border-primary/50 has-data-[state=checked]:bg-primary/5 has-data-[state=checked]:ring-1 has-data-[state=checked]:ring-primary/20 ${
+              sttProvider !== "malayalam-combo" ? "hover:border-muted-foreground/25" : ""
+            }`}
+          >
+            <RadioGroupItem value="malayalam-combo" className="mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-foreground">
+                Local (Malayalam, fast + accurate) — മലയാളം, test
+              </span>
+              <p className="text-[0.625rem] leading-relaxed text-muted-foreground">
+                Uses both Malayalam engines: IndicConformer shows verses while
+                the preacher is still speaking, and Indic-Transcribe checks each
+                sentence at the pause and corrects them. Needs both downloads:
+                bun run download:malayalam and bun run download:malayalam-it
               </p>
             </div>
           </label>

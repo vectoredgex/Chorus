@@ -20,6 +20,8 @@
 //! the verses found are only listed, not scored.
 //!
 //! `CHORUS_REPLAY_MINUTES` limits how much of the recording is played.
+//! `CHORUS_REPLAY_FAST=<IndicConformer folder>` with an Indic-Transcribe
+//! folder runs both Malayalam engines (fast previews, accurate finals).
 //!
 //! Prints every transcript and detection with its time, then a score.
 //! Exit code is non-zero when CHORUS_REPLAY_MIN is set and the share of
@@ -187,7 +189,14 @@ async fn main() {
     // A model folder means Parakeet, IndicConformer or Indic-Transcribe
     // (recognised by its files); a model file means Whisper.
     let model = std::path::PathBuf::from(&args[1]);
-    let provider: Box<dyn SttProvider> = if rhema_stt::indic_transcribe::model_present(&model) {
+    // CHORUS_REPLAY_FAST=<IndicConformer folder> with an Indic-Transcribe
+    // folder runs Malayalam fast + accurate (both engines).
+    let fast = std::env::var("CHORUS_REPLAY_FAST").ok().map(std::path::PathBuf::from);
+    let provider: Box<dyn SttProvider> = if let (Some(fast), true) = (fast, rhema_stt::indic_transcribe::model_present(&model)) {
+        println!("engine: malayalam fast + accurate ({} + {})", fast.display(), model.display());
+        let n = usize::try_from(threads).unwrap_or(4);
+        Box::new(rhema_stt::MalayalamComboProvider::new(fast, model, threads, n))
+    } else if rhema_stt::indic_transcribe::model_present(&model) {
         println!("engine: indic-transcribe ({})", model.display());
         Box::new(rhema_stt::IndicTranscribeProvider::new(model, usize::try_from(threads).unwrap_or(4)))
     } else if rhema_stt::parakeet::model_present_for(rhema_stt::SherpaModel::IndicConformerMalayalam, &model) {

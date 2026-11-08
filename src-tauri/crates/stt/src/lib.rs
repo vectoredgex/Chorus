@@ -35,6 +35,9 @@ pub mod parakeet;
 #[cfg(feature = "indic-transcribe")]
 pub mod indic_transcribe;
 
+#[cfg(all(feature = "indic-transcribe", feature = "parakeet"))]
+pub mod malayalam_combo;
+
 pub use deepgram::DeepgramClient;
 pub use error::SttError;
 pub use keyterms::bible_keyterms;
@@ -49,3 +52,6 @@ pub use parakeet::{ParakeetProvider, SherpaModel};
 
 #[cfg(feature = "indic-transcribe")]
 pub use indic_transcribe::IndicTranscribeProvider;
+
+#[cfg(all(feature = "indic-transcribe", feature = "parakeet"))]
+pub use malayalam_combo::MalayalamComboProvider;

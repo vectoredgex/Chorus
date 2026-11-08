@@ -112,3 +112,25 @@ jobs:
           cat test-audio/report-new.txt
           grep -q "VERSES SHOWN" test-audio/report-new.txt
           ! grep -q "ENGINE ERROR" test-audio/report-new.txt
+
+      # Malayalam fast + accurate: both engines (two onnxruntime users) in
+      # one process on Windows.
+      - name: Malayalam fast + accurate on Windows
+        shell: bash
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os, shutil
+          from huggingface_hub import hf_hub_download
+          d = "models/malayalam/indicconformer-600m-ml-int8"
+          os.makedirs(d, exist_ok=True)
+          for f in ["indicconformer-ml.int8.onnx", "indicconformer-tokens.txt"]:
+              shutil.copy(hf_hub_download("Docglasses-AI/indic-conformer-600m-sherpa-onnx-int8", f), os.path.join(d, f))
+          PY
+          clip=$(ls models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/test_wavs/*.wav | head -1)
+          CHORUS_REPLAY_FAST=models/malayalam/indicconformer-600m-ml-int8 \
+            src-tauri/target/release/chorus-replay.exe models/malayalam/indic-transcribe-core-int8 4 "$clip" - | tee combo.txt
+          grep -q "fast + accurate" combo.txt
+          grep -q "ML-Combo\] accurate" combo.txt
+          ! grep -q "ENGINE ERROR" combo.txt

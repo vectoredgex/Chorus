@@ -365,6 +365,22 @@ const TIMING: PartialTiming = PartialTiming {
 /// Start does not wait 7-11 s to load it again.
 static LOADED: std::sync::Mutex<Option<(PathBuf, usize, IndicTranscribe)>> = std::sync::Mutex::new(None);
 
+/// The model kept from the last session, or a fresh load.
+pub(crate) fn take_or_load(dir: &Path, n_threads: usize) -> Result<IndicTranscribe, String> {
+    let kept = LOADED.lock().ok().and_then(|mut k| k.take()).filter(|k| k.0 == dir && k.1 == n_threads);
+    match kept {
+        Some((_, _, m)) => Ok(m),
+        None => IndicTranscribe::load(dir, "ml", n_threads),
+    }
+}
+
+/// Keep the model for the next session.
+pub(crate) fn keep_loaded(dir: PathBuf, n_threads: usize, model: IndicTranscribe) {
+    if let Ok(mut k) = LOADED.lock() {
+        *k = Some((dir, n_threads, model));
+    }
+}
+
 /// Live Malayalam transcription with Indic-Transcribe.
 pub struct IndicTranscribeProvider {
     model_dir: PathBuf,
@@ -396,7 +412,7 @@ impl std::fmt::Debug for IndicTranscribeProvider {
     clippy::cast_precision_loss,
     reason = "clip lengths and word counts are small"
 )]
-fn words_of(text: &str, duration_s: f64) -> Vec<Word> {
+pub(crate) fn words_of(text: &str, duration_s: f64) -> Vec<Word> {
     let n = text.split_whitespace().count();
     if n == 0 {
         return Vec::new();
@@ -447,13 +463,7 @@ impl SttProvider for IndicTranscribeProvider {
         let inf_event_tx = event_tx.clone();
         let inf_handle = tokio::task::spawn_blocking(move || {
             let load_start = std::time::Instant::now();
-            // Kept from the last session: Start is instant after the first.
-            let kept = LOADED.lock().ok().and_then(|mut k| k.take()).filter(|k| k.0 == model_dir && k.1 == n_threads);
-            let loaded = match kept {
-                Some((_, _, m)) => Ok(m),
-                None => IndicTranscribe::load(&model_dir, "ml", n_threads),
-            };
-            let mut model = match loaded {
+            let mut model = match take_or_load(&model_dir, n_threads) {
                 Ok(m) => m,
                 Err(e) => {
                     log::error!("[IndicTranscribe] Failed to load model: {e}");
@@ -523,9 +533,7 @@ impl SttProvider for IndicTranscribeProvider {
                 let _ = inf_event_tx.blocking_send(TranscriptEvent::UtteranceEnd);
             }
             log::info!("[IndicTranscribe] Inference task exiting");
-            if let Ok(mut k) = LOADED.lock() {
-                *k = Some((model_dir, n_threads, model));
-            }
+            keep_loaded(model_dir, n_threads, model);
         });
 
         let _ = tokio::join!(vad_handle, inf_handle);

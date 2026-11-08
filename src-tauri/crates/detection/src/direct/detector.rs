@@ -2764,6 +2764,26 @@ mod tests {
         assert_eq!(shown.first().map(|s| s.0), Some(2), "{shown:?}");
     }
 
+    /// Malayalam fast + accurate: the fast engine's previews may show a
+    /// misheard verse; the accurate engine's final then shows the right one.
+    #[test]
+    fn malayalam_combo_final_corrects_fast_guess() {
+        let shown = ml_stream(&[
+            (false, "യോഹന്നാൻ ഇരുപതിന്റെ അഞ്ച്"),
+            (false, "യോഹന്നാൻ ഇരുപതിന്റെ അഞ്ച് നമുക്ക്"),
+            (true, "യോഹന്നാൻ ഇരുപതിന്റെ ആറ് നമുക്ക് വായിക്കാം"),
+        ]);
+        assert_eq!(shown.last().map(|s| s.1.as_str()), Some("43 20:6"), "{shown:?}");
+        assert_eq!(shown.first().map(|s| s.0), Some(1), "quick guess shown early: {shown:?}");
+        // The fast engine garbles the name; the final still finds it.
+        let late = ml_stream(&[
+            (false, "ഫെബ്രായർ പത്തിന്റെ"),
+            (false, "ഫെബ്രായർ പത്തിന്റെ ഇരുപത്"),
+            (true, "എബ്രായർ പത്തിന്റെ ഇരുപത്"),
+        ]);
+        assert_eq!(late.last().map(|s| s.1.as_str()), Some("58 10:20"), "{late:?}");
+    }
+
     /// Live test 2026-11-08 15:27 with Indic-Transcribe, which writes
     /// "ൻ്റെ" for "ന്റെ" and splits references at pauses.
     #[test]
