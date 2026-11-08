@@ -7,18 +7,26 @@
 //! expected list.
 //!
 //! Usage:
-//!   chorus-replay <model.bin | parakeet_model_dir> <threads> <recording.wav> <expected.txt>
+//!   chorus-replay <model.bin | model_dir> <threads> <recording> [expected.txt | -]
 //!
-//! A Whisper model file runs Whisper; a Parakeet model folder runs Parakeet.
+//! A Whisper model file runs Whisper. A model folder runs whichever engine
+//! it holds: Parakeet (English), IndicConformer or Indic-Transcribe
+//! (Malayalam).
 //!
-//! The recording must be 16 kHz, mono, 16-bit PCM WAV. `expected.txt` lists
+//! The recording can be WAV, MP3, M4A/AAC, OGG or FLAC at any sample rate;
+//! it is mixed to mono and resampled to 16 kHz. `expected.txt` lists
 //! one reference per line, in order ("Romans 8:28", "Psalms 23"); blank
-//! lines and lines starting with '#' are ignored.
+//! lines and lines starting with '#' are ignored. Without it (or with "-")
+//! the verses found are only listed, not scored.
+//!
+//! `CHORUS_REPLAY_MINUTES` limits how much of the recording is played.
 //!
 //! Prints every transcript and detection with its time, then a score.
 //! Exit code is non-zero when CHORUS_REPLAY_MIN is set and the share of
 //! expected verses found is below it.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rhema_detection::{DirectDetector, PartialConfirmer};
@@ -37,23 +45,100 @@ const BOOKS: [&str; 66] = [
     "Revelation",
 ];
 
-/// Minimal reader for 16-bit PCM mono WAV.
-fn read_wav(path: &str) -> Vec<i16> {
-    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
-    let mut i = 12;
-    while i + 8 <= bytes.len() {
-        let id = &bytes[i..i + 4];
-        let size = u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
-        if id == b"data" {
-            let end = (i + 8 + size).min(bytes.len());
-            return bytes[i + 8..end]
-                .chunks_exact(2)
-                .map(|c| i16::from_le_bytes([c[0], c[1]]))
-                .collect();
-        }
-        i += 8 + size + (size & 1);
+/// Decodes any common audio file to 16 kHz mono 16-bit samples.
+fn read_audio(path: &str) -> Vec<i16> {
+    use symphonia::core::audio::SampleBuffer;
+    use symphonia::core::codecs::DecoderOptions;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("open {path}: {e}"));
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
     }
-    panic!("{path}: no data chunk");
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .unwrap_or_else(|e| panic!("{path}: unsupported audio ({e})"));
+    let mut format = probed.format;
+    let track = format.default_track().expect("no audio track").clone();
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .unwrap_or_else(|e| panic!("{path}: unsupported codec ({e})"));
+    let mut rate = track.codec_params.sample_rate.unwrap_or(16_000);
+    let mut mono: Vec<f32> = Vec::new();
+    while let Ok(packet) = format.next_packet() {
+        if packet.track_id() != track.id {
+            continue;
+        }
+        let Ok(decoded) = decoder.decode(&packet) else { continue };
+        let spec = *decoded.spec();
+        rate = spec.rate;
+        let channels = spec.channels.count().max(1);
+        let mut buf = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
+        buf.copy_interleaved_ref(decoded);
+        #[expect(clippy::cast_precision_loss, reason = "channel count is tiny")]
+        mono.extend(buf.samples().chunks(channels).map(|f| f.iter().sum::<f32>() / channels as f32));
+    }
+    resample_to_16k(&mono, rate)
+}
+
+/// Low-pass (box filter) then linear interpolation to 16 kHz.
+#[expect(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "audio maths")]
+fn resample_to_16k(input: &[f32], rate: u32) -> Vec<i16> {
+    let to_i16 = |x: f32| (x.clamp(-1.0, 1.0) * 32767.0) as i16;
+    if rate == 16_000 || input.is_empty() {
+        return input.iter().map(|&x| to_i16(x)).collect();
+    }
+    let ratio = f64::from(rate) / 16_000.0;
+    let width = (ratio.round() as usize).max(1);
+    let filtered: Vec<f32> = if width > 1 {
+        let mut acc = 0.0f32;
+        let mut out = Vec::with_capacity(input.len());
+        for (i, &x) in input.iter().enumerate() {
+            acc += x;
+            if i >= width {
+                acc -= input[i - width];
+            }
+            out.push(acc / width.min(i + 1) as f32);
+        }
+        out
+    } else {
+        input.to_vec()
+    };
+    let n_out = (input.len() as f64 / ratio) as usize;
+    (0..n_out)
+        .map(|k| {
+            let pos = k as f64 * ratio;
+            let i = pos as usize;
+            let frac = (pos - i as f64) as f32;
+            let a = filtered[i.min(filtered.len() - 1)];
+            let b = filtered[(i + 1).min(filtered.len() - 1)];
+            to_i16(a + (b - a) * frac)
+        })
+        .collect()
+}
+
+/// Prints the speech engines' log lines (e.g. how long each phrase took).
+struct PrintLog;
+impl log::Log for PrintLog {
+    fn enabled(&self, m: &log::Metadata) -> bool {
+        m.level() <= log::Level::Info && !m.target().starts_with("ort")
+    }
+    fn log(&self, r: &log::Record) {
+        if self.enabled(r.metadata()) {
+            println!("         log: {}", r.args());
+        }
+    }
+    fn flush(&self) {}
+}
+
+fn mmss(samples: usize) -> String {
+    let s = samples / 16_000;
+    format!("{:02}:{:02}", s / 60, s % 60)
 }
 
 /// "John 3:16", "John 3:16-18", or "Psalms 23" for a chapter-only reference.
@@ -76,20 +161,39 @@ fn show(d: &rhema_detection::Detection) -> String {
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() == 5, "usage: chorus-replay <model.bin> <threads> <recording.wav> <expected.txt>");
+    assert!(
+        args.len() == 4 || args.len() == 5,
+        "usage: chorus-replay <model.bin | model_dir> <threads> <recording> [expected.txt | -]"
+    );
+    let _ = log::set_logger(&PrintLog).map(|()| log::set_max_level(log::LevelFilter::Info));
     let threads: i32 = args[2].parse().expect("threads");
-    let audio = read_wav(&args[3]);
-    let expected: Vec<String> = std::fs::read_to_string(&args[4])
-        .expect("expected file")
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(String::from)
-        .collect();
+    let mut audio = read_audio(&args[3]);
+    if let Some(min) = std::env::var("CHORUS_REPLAY_MINUTES").ok().and_then(|m| m.parse::<usize>().ok()) {
+        audio.truncate(min * 60 * 16_000);
+    }
+    let scored = args.len() == 5 && args[4] != "-";
+    let expected: Vec<String> = if scored {
+        std::fs::read_to_string(&args[4])
+            .expect("expected file")
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(String::from)
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-    // A model folder means Parakeet; a model file means Whisper.
+    // A model folder means Parakeet, IndicConformer or Indic-Transcribe
+    // (recognised by its files); a model file means Whisper.
     let model = std::path::PathBuf::from(&args[1]);
-    let provider: Box<dyn SttProvider> = if model.is_dir() {
+    let provider: Box<dyn SttProvider> = if rhema_stt::indic_transcribe::model_present(&model) {
+        println!("engine: indic-transcribe ({})", model.display());
+        Box::new(rhema_stt::IndicTranscribeProvider::new(model, usize::try_from(threads).unwrap_or(4)))
+    } else if rhema_stt::parakeet::model_present_for(rhema_stt::SherpaModel::IndicConformerMalayalam, &model) {
+        println!("engine: indicconformer ({})", model.display());
+        Box::new(rhema_stt::ParakeetProvider::with_model(rhema_stt::SherpaModel::IndicConformerMalayalam, model, threads))
+    } else if model.is_dir() {
         println!("engine: parakeet ({})", model.display());
         Box::new(rhema_stt::ParakeetProvider::new(model, threads))
     } else {
@@ -101,13 +205,17 @@ async fn main() {
 
     let started = Instant::now();
     let runner = tokio::spawn(async move {
-        let _ = provider.start(audio_rx, event_tx).await;
+        if let Err(e) = provider.start(audio_rx, event_tx).await {
+            println!("ENGINE ERROR: {e}");
+        }
     });
 
     // Feed the recording in 10 ms chunks at real-time speed, like a
     // Windows microphone, then 2 s of silence so the last phrase ends.
     #[expect(clippy::cast_precision_loss, reason = "recording lengths are small")]
     let audio_secs = audio.len() as f64 / 16_000.0;
+    let fed = Arc::new(AtomicUsize::new(0));
+    let fed_by_feeder = fed.clone();
     std::thread::spawn(move || {
         let t0 = Instant::now();
         let silence = vec![0i16; 32_000];
@@ -119,6 +227,7 @@ async fn main() {
             if audio_tx.send(chunk.to_vec()).is_err() {
                 return;
             }
+            fed_by_feeder.fetch_add(chunk.len(), Ordering::Relaxed);
         }
         // Dropping the sender tells the provider the audio has ended.
     });
@@ -135,19 +244,29 @@ async fn main() {
             TranscriptEvent::Disconnected => break,
             _ => continue,
         };
-        println!("[{t:6.1}s] {} {text:?}", if is_final { "FINAL  " } else { "partial" });
+        let at = mmss(fed.load(Ordering::Relaxed));
+        println!("[{at}] {} {text:?}", if is_final { "FINAL  " } else { "partial" });
         let detected = detector.detect_utterance(&text, is_final);
         let results = confirmer.filter_settled(detected, is_final, detector.settled());
         for d in results {
             let r = show(&d);
             rhema_stt::whisper::set_context_hint(&r);
             if found.last().map(|(_, x)| x) != Some(&r) {
-                println!("[{t:6.1}s]   -> VERSE {r} ({:.0}%)", d.confidence * 100.0);
+                println!("[{at}]   -> VERSE {r} ({:.0}%)", d.confidence * 100.0);
                 found.push((t, r));
             }
         }
     }
     let _ = runner.await;
+
+    if !scored {
+        println!("\n==== VERSES SHOWN ({}) ====", found.len());
+        for (_, r) in &found {
+            println!("  {r}");
+        }
+        println!("{audio_secs:.0}s of audio played in {:.0}s", started.elapsed().as_secs_f64());
+        return;
+    }
 
     // Score: each expected reference must appear, in order.
     let mut hits = 0usize;

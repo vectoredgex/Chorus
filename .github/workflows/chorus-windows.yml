@@ -9,6 +9,8 @@ on:
     branches: ["chorus/**"]
     paths:
       - "src-tauri/crates/stt/**"
+      - "src-tauri/crates/replay/**"
+      - "data/test-sermon.ts"
       - "src-tauri/Cargo.lock"
       - ".github/workflows/chorus-windows.yml"
   workflow_dispatch:
@@ -95,3 +97,18 @@ jobs:
           clip=$(ls $d/test_wavs/*.wav | head -1)
           src-tauri/target/release/examples/indic_transcribe_lines.exe it-model 4 "$clip" | tee it.txt
           test -s it.txt
+
+      # The sermon test (bun run test:sermon) on Windows: real pipeline,
+      # Indic-Transcribe, audio file in, verse list out.
+      - uses: oven-sh/setup-bun@v2
+      - name: Sermon test command on Windows
+        shell: bash
+        run: |
+          mkdir -p models/malayalam
+          mv it-model models/malayalam/indic-transcribe-core-int8
+          d=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          clip=$(ls $d/test_wavs/*.wav | head -1)
+          bun run test:sermon "$clip" --minutes 1
+          cat test-audio/report-new.txt
+          grep -q "VERSES SHOWN" test-audio/report-new.txt
+          ! grep -q "ENGINE ERROR" test-audio/report-new.txt

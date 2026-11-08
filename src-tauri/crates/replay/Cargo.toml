@@ -7,10 +7,12 @@ license = "MIT"
 publish = false
 
 [dependencies]
-rhema-stt = { path = "../stt", features = ["whisper", "parakeet"] }
+rhema-stt = { path = "../stt", features = ["whisper", "parakeet", "indic-transcribe"] }
 rhema-detection = { path = "../detection" }
 tokio = { workspace = true }
 crossbeam-channel = "0.5"
+log = { workspace = true }
+symphonia = { version = "0.5", default-features = false, features = ["aac", "isomp4", "mp3", "pcm", "wav", "vorbis", "ogg", "flac"] }
 
 [features]
 cuda = ["rhema-stt/cuda"]
