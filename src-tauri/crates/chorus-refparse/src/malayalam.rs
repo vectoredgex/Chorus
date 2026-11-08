@@ -252,6 +252,11 @@ const ENDINGS: &[&str] = &[
     "ത്തില്നിന്ന്", "യില്നിന്ന്",
 ];
 
+/// Every Malayalam spelling of every book name, as written in the Bible.
+pub fn book_spellings() -> impl Iterator<Item = &'static str> {
+    BOOKS.iter().flat_map(|(_, forms)| forms.iter().copied())
+}
+
 fn book_table() -> &'static Vec<(String, &'static str)> {
     static T: OnceLock<Vec<(String, &'static str)>> = OnceLock::new();
     T.get_or_init(|| {

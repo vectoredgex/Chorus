@@ -32,7 +32,12 @@ use crate::whisper::{i16_to_f32, level_volume, next_job, run_segmenter, Job, Par
 pub const MODEL_DIR_NAME: &str = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8";
 
 /// Files the model folder must contain.
-pub const MODEL_FILES: [&str; 4] = ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"];
+pub const MODEL_FILES: [&str; 4] = [
+    "encoder.int8.onnx",
+    "decoder.int8.onnx",
+    "joiner.int8.onnx",
+    "tokens.txt",
+];
 
 /// Parakeet transcribes a phrase in a fraction of a second, so live partials
 /// can start after 1 s of speech and repeat every 0.6 s: a reference reaches
@@ -45,7 +50,10 @@ const PARAKEET_PARTIALS: PartialTiming = PartialTiming {
 
 /// Malayalam: the same, but a quieter voice still counts as speech (half
 /// the level). At 0.01 a softly spoken reference was missed live.
-const MALAYALAM_PARTIALS: PartialTiming = PartialTiming { voice_rms: 0.005, ..PARAKEET_PARTIALS };
+const MALAYALAM_PARTIALS: PartialTiming = PartialTiming {
+    voice_rms: 0.005,
+    ..PARAKEET_PARTIALS
+};
 
 /// Folder name of the Malayalam model inside `models/malayalam/`.
 pub const MALAYALAM_DIR_NAME: &str = "indicconformer-600m-ml-int8";
@@ -105,7 +113,12 @@ impl ParakeetProvider {
 
     /// Run another sherpa-onnx model, e.g. Malayalam IndicConformer.
     pub fn with_model(model: SherpaModel, model_dir: PathBuf, n_threads: i32) -> Self {
-        Self { model, model_dir, n_threads: n_threads.max(1), cancelled: Arc::new(AtomicBool::new(false)) }
+        Self {
+            model,
+            model_dir,
+            n_threads: n_threads.max(1),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
     }
 }
 
@@ -129,7 +142,11 @@ pub fn load_recognizer(model_dir: &Path, n_threads: i32) -> Option<OfflineRecogn
 }
 
 /// Build the recogniser for `model`. `None` if it could not be loaded.
-pub fn load_recognizer_for(model: SherpaModel, model_dir: &Path, n_threads: i32) -> Option<OfflineRecognizer> {
+pub fn load_recognizer_for(
+    model: SherpaModel,
+    model_dir: &Path,
+    n_threads: i32,
+) -> Option<OfflineRecognizer> {
     let mut config = OfflineRecognizerConfig::default();
     match model {
         SherpaModel::ParakeetEnglish => {
@@ -142,8 +159,9 @@ pub fn load_recognizer_for(model: SherpaModel, model_dir: &Path, n_threads: i32)
             config.model_config.model_type = Some("nemo_transducer".into());
         }
         SherpaModel::IndicConformerMalayalam => {
-            config.model_config.nemo_ctc =
-                OfflineNemoEncDecCtcModelConfig { model: path_string(model_dir, MALAYALAM_FILES[0]) };
+            config.model_config.nemo_ctc = OfflineNemoEncDecCtcModelConfig {
+                model: path_string(model_dir, MALAYALAM_FILES[0]),
+            };
             config.model_config.tokens = path_string(model_dir, MALAYALAM_FILES[1]);
         }
     }
@@ -164,7 +182,10 @@ pub fn transcribe(recognizer: &OfflineRecognizer, audio: &[f32]) -> String {
 
 /// Words with even timing over the clip; Parakeet's text is already
 /// punctuated and capitalised.
-#[expect(clippy::cast_precision_loss, reason = "clip lengths and word counts are small")]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "clip lengths and word counts are small"
+)]
 fn words_of(text: &str, duration_s: f64) -> Vec<Word> {
     let n = text.split_whitespace().count();
     if n == 0 {
@@ -176,7 +197,9 @@ fn words_of(text: &str, duration_s: f64) -> Vec<Word> {
         .map(|(i, w)| Word {
             // Malayalam vowel signs are not "alphanumeric" but belong to the word.
             text: w
-                .trim_matches(|c: char| !(c.is_alphanumeric() || ('\u{0D00}'..='\u{0D7F}').contains(&c)))
+                .trim_matches(|c: char| {
+                    !(c.is_alphanumeric() || ('\u{0D00}'..='\u{0D7F}').contains(&c))
+                })
                 .to_lowercase(),
             start: i as f64 * step,
             end: (i + 1) as f64 * step,
@@ -226,7 +249,10 @@ impl SttProvider for ParakeetProvider {
         let inf_event_tx = event_tx.clone();
         let inf_handle = tokio::task::spawn_blocking(move || {
             let Some(recognizer) = load_recognizer_for(model, &model_dir, n_threads) else {
-                log::error!("[{label}] Failed to load model from {}", model_dir.display());
+                log::error!(
+                    "[{label}] Failed to load model from {}",
+                    model_dir.display()
+                );
                 let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(format!(
                     "Failed to load the {label} speech model"
                 )));
@@ -235,7 +261,8 @@ impl SttProvider for ParakeetProvider {
             log::info!("[{label}] Model loaded, ready for inference (threads={n_threads})");
 
             let mut pending_job: Option<Job> = None;
-            while let Some((audio_i16, is_partial)) = next_job(&mut inference_rx, &mut pending_job) {
+            while let Some((audio_i16, is_partial)) = next_job(&mut inference_rx, &mut pending_job)
+            {
                 if cancelled.load(Ordering::SeqCst) {
                     break;
                 }
@@ -254,7 +281,10 @@ impl SttProvider for ParakeetProvider {
 
                 if is_partial {
                     if !text.is_empty() {
-                        let _ = inf_event_tx.blocking_send(TranscriptEvent::Partial { transcript: text, words });
+                        let _ = inf_event_tx.blocking_send(TranscriptEvent::Partial {
+                            transcript: text,
+                            words,
+                        });
                     }
                     continue;
                 }

@@ -83,14 +83,23 @@ mod tests {
             remove_repeats("So we look at Ephesians 2 verse 8 and 9. For my grace you have been saved through faith. For my grace you have been saved through faith."),
             "So we look at Ephesians 2 verse 8 and 9. For my grace you have been saved through faith."
         );
-        assert_eq!(remove_repeats("Turn with me to Psalm 23. Turn with me to Psalm 23."), "Turn with me to Psalm 23.");
+        assert_eq!(
+            remove_repeats("Turn with me to Psalm 23. Turn with me to Psalm 23."),
+            "Turn with me to Psalm 23."
+        );
     }
 
     #[test]
     fn keeps_real_speech() {
-        assert_eq!(remove_repeats("Holy, holy, holy is the Lord"), "Holy, holy, holy is the Lord");
+        assert_eq!(
+            remove_repeats("Holy, holy, holy is the Lord"),
+            "Holy, holy, holy is the Lord"
+        );
         assert_eq!(remove_repeats("amen amen"), "amen amen");
-        assert_eq!(remove_repeats("John 3:16 and John 3:17"), "John 3:16 and John 3:17");
+        assert_eq!(
+            remove_repeats("John 3:16 and John 3:17"),
+            "John 3:16 and John 3:17"
+        );
         assert_eq!(remove_repeats(""), "");
     }
 }

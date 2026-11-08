@@ -80,7 +80,8 @@ jobs:
         # measured in run 42482276437 and are left out to save time.
         # indic-transcribe-rust is the app's own Rust code (the same model as
         # indic-transcribe-int8, which is the Python reference for it).
-        engine: [indicconformer, indic-transcribe-int8, indic-transcribe-rust]
+        # -b1/-b2: book-name bias (start,cont bonus) on.
+        engine: [indic-transcribe-rust, indic-transcribe-rust-b1, indic-transcribe-rust-b2]
         voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
@@ -99,7 +100,7 @@ jobs:
                pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet transformers "onnxruntime<1.23" ;;
             indic-transcribe-int8) pip install --quiet "onnxruntime>=1.24" ;;
-            indic-transcribe-rust) ;;
+            indic-transcribe-rust*) ;;
             indicconformer*|omnilingual*) pip install --quiet sherpa-onnx ;;
             koyal) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet "nemo_toolkit[asr]" ;;
@@ -116,14 +117,14 @@ jobs:
             ~/.cache/omnilingual
           key: ml-engines-hf-${{ matrix.engine }}-v1
       - uses: dtolnay/rust-toolchain@stable
-        if: matrix.engine == 'indic-transcribe-rust'
+        if: startsWith(matrix.engine, 'indic-transcribe-rust')
       - uses: Swatinem/rust-cache@v2
-        if: matrix.engine == 'indic-transcribe-rust'
+        if: startsWith(matrix.engine, 'indic-transcribe-rust')
         with:
           workspaces: src-tauri
           key: ml-it-rust
       - name: Build the app's Indic-Transcribe code and fetch its model
-        if: matrix.engine == 'indic-transcribe-rust'
+        if: startsWith(matrix.engine, 'indic-transcribe-rust')
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -152,7 +153,8 @@ jobs:
             if [ -z "$HF_TOKEN" ]; then echo "::warning::$E skipped: add the HF_TOKEN repo secret"; exit 0; fi ;;
           esac
           run() {
-            if [ "$E" = indic-transcribe-rust ]; then
+            if [[ "$E" == indic-transcribe-rust* ]]; then
+              case "$E" in *-b1) export CHORUS_IT_BIAS="1,2" ;; *-b2) export CHORUS_IT_BIAS="2,4" ;; *) export CHORUS_IT_BIAS="0,0" ;; esac
               src-tauri/target/release/examples/indic_transcribe_lines it-model $T "$@"
             else
               python3 scripts/chorus/ml_transcribe.py $E $T "$@"

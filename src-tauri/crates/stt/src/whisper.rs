@@ -11,7 +11,9 @@ use std::time::Duration;
 
 use crossbeam_channel::Receiver;
 use tokio::sync::mpsc;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+};
 
 use crate::error::SttError;
 use crate::provider::SttProvider;
@@ -66,7 +68,11 @@ pub fn audio_ctx_for(samples: usize) -> i32 {
     const MAX_FRAMES: usize = 1500;
     let needed = samples * FRAMES_PER_SECOND / 16_000 + MARGIN_FRAMES;
     // At most 1500, so the cast cannot truncate.
-    #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap, reason = "clamped to 1500")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        reason = "clamped to 1500"
+    )]
     let frames = needed.clamp(MIN_FRAMES, MAX_FRAMES) as i32;
     frames
 }
@@ -86,7 +92,8 @@ pub fn encoder_window(samples: usize) -> i32 {
 /// Primes Whisper with how Bible references are written, so spoken book
 /// names and chapter/verse numbers come out as references ("John 3:16")
 /// instead of sound-alike words.
-pub const BIBLE_PROMPT: &str = "Sermon with Bible references such as John 3:16, Romans chapter 8 verse 28, \
+pub const BIBLE_PROMPT: &str =
+    "Sermon with Bible references such as John 3:16, Romans chapter 8 verse 28, \
 1 Corinthians 13:4, Psalm 23, Genesis 1:1, Philippians 4:13, Ephesians 2:8-9 and Revelation 21:4.";
 
 /// What the sermon is currently on ("Romans 8:28"), set by the app after
@@ -221,7 +228,10 @@ pub(crate) fn i16_to_f32(samples: &[i16]) -> Vec<f32> {
 }
 
 /// Extract transcript text, words, and average confidence from Whisper state.
-#[expect(clippy::cast_precision_loss, reason = "timestamps and word counts are small enough")]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "timestamps and word counts are small enough"
+)]
 fn extract_segments(state: &WhisperState) -> (String, Vec<Word>, f64) {
     let n_segments = state.full_n_segments();
     let mut full_text = String::new();
@@ -229,7 +239,9 @@ fn extract_segments(state: &WhisperState) -> (String, Vec<Word>, f64) {
     let mut total_confidence: f64 = 0.0;
 
     for i in 0..n_segments {
-        let Some(segment) = state.get_segment(i) else { continue; };
+        let Some(segment) = state.get_segment(i) else {
+            continue;
+        };
         let text = segment.to_str_lossy().unwrap_or_default().to_string();
         let start_ts = segment.start_timestamp();
         let end_ts = segment.end_timestamp();
@@ -329,87 +341,90 @@ pub(crate) fn run_segmenter(
 
         match audio_rx.recv_timeout(Duration::from_millis(50)) {
             Ok(samples) => {
-              pending.extend_from_slice(&samples);
-              while pending.len() >= VAD_FRAME_SAMPLES {
-                let chunk: Vec<i16> = pending.drain(..VAD_FRAME_SAMPLES).collect();
-                let frame = AudioFrame { samples: chunk, timestamp_ms: 0 };
-                let result = vad.process(&frame);
+                pending.extend_from_slice(&samples);
+                while pending.len() >= VAD_FRAME_SAMPLES {
+                    let chunk: Vec<i16> = pending.drain(..VAD_FRAME_SAMPLES).collect();
+                    let frame = AudioFrame {
+                        samples: chunk,
+                        timestamp_ms: 0,
+                    };
+                    let result = vad.process(&frame);
 
-                if let Some(transition) = result.transition {
-                    match transition {
-                        VadTransition::SpeechStarted => {
-                            // Drop a leftover short piece that is too old
-                            // to belong to this utterance.
-                            if short_piece_at
-                                .is_some_and(|t| t.elapsed() > SHORT_PIECE_JOIN_WINDOW)
-                            {
-                                audio_buffer.clear();
-                                partial_mark = 0;
+                    if let Some(transition) = result.transition {
+                        match transition {
+                            VadTransition::SpeechStarted => {
+                                // Drop a leftover short piece that is too old
+                                // to belong to this utterance.
+                                if short_piece_at
+                                    .is_some_and(|t| t.elapsed() > SHORT_PIECE_JOIN_WINDOW)
+                                {
+                                    audio_buffer.clear();
+                                    partial_mark = 0;
+                                }
+                                short_piece_at = None;
+                                let _ = event_tx.blocking_send(TranscriptEvent::SpeechStarted);
                             }
-                            short_piece_at = None;
-                            let _ = event_tx
-                                .blocking_send(TranscriptEvent::SpeechStarted);
-                        }
-                        VadTransition::SpeechEnded => {
-                            log::info!(
+                            VadTransition::SpeechEnded => {
+                                log::info!(
                                 "[WHISPER] flush on SpeechEnded: audio_buffer={} samples ({:.1}s)",
                                 audio_buffer.len(),
                                 audio_buffer.len() as f64 / 16_000.0,
                             );
-                            if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                                let _ = inference_tx.blocking_send(Job::Final(
-                                    std::mem::take(&mut audio_buffer),
-                                ));
-                                partial_mark = 0;
-                            } else if audio_buffer.len() >= MIN_WORD_SAMPLES {
-                                // Too short alone ("John"); keep it so it
-                                // is transcribed with what follows.
-                                short_piece_at = Some(std::time::Instant::now());
-                            } else if short_piece_at.is_none() {
-                                // A click or breath on its own: drop it.
-                                audio_buffer.clear();
-                                partial_mark = 0;
+                                if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
+                                    let _ = inference_tx.blocking_send(Job::Final(std::mem::take(
+                                        &mut audio_buffer,
+                                    )));
+                                    partial_mark = 0;
+                                } else if audio_buffer.len() >= MIN_WORD_SAMPLES {
+                                    // Too short alone ("John"); keep it so it
+                                    // is transcribed with what follows.
+                                    short_piece_at = Some(std::time::Instant::now());
+                                } else if short_piece_at.is_none() {
+                                    // A click or breath on its own: drop it.
+                                    audio_buffer.clear();
+                                    partial_mark = 0;
+                                }
                             }
                         }
                     }
-                }
 
-                for frame in result.frames {
-                    audio_buffer.extend_from_slice(&frame.samples);
-                    frames_seen += 1;
-                }
+                    for frame in result.frames {
+                        audio_buffer.extend_from_slice(&frame.samples);
+                        frames_seen += 1;
+                    }
 
-                if frames_seen.is_multiple_of(50) && !audio_buffer.is_empty() {
-                    log::debug!(
-                        "[WHISPER] audio_buffer={} samples ({:.1}s) frames_seen={frames_seen}",
-                        audio_buffer.len(),
-                        audio_buffer.len() as f64 / 16_000.0,
-                    );
-                }
+                    if frames_seen.is_multiple_of(50) && !audio_buffer.is_empty() {
+                        log::debug!(
+                            "[WHISPER] audio_buffer={} samples ({:.1}s) frames_seen={frames_seen}",
+                            audio_buffer.len(),
+                            audio_buffer.len() as f64 / 16_000.0,
+                        );
+                    }
 
-                if audio_buffer.len() >= MAX_BUFFER_SAMPLES {
-                    log::warn!(
+                    if audio_buffer.len() >= MAX_BUFFER_SAMPLES {
+                        log::warn!(
                         "[WHISPER] flush on MAX_BUFFER ({} samples / {:.1}s) — VAD never closed",
                         audio_buffer.len(),
                         audio_buffer.len() as f64 / 16_000.0,
                     );
-                    let _ = inference_tx
-                        .blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
-                    partial_mark = 0;
-                } else if audio_buffer.len() >= cfg.partial_min
-                    && audio_buffer.len() >= partial_mark + cfg.partial_every
-                {
-                    // Never block the audio loop for a partial; if the
-                    // inference queue is full, the next one will do.
-                    partial_mark = audio_buffer.len();
-                    let _ = inference_tx.try_send(Job::Partial(audio_buffer.clone()));
+                        let _ = inference_tx
+                            .blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
+                        partial_mark = 0;
+                    } else if audio_buffer.len() >= cfg.partial_min
+                        && audio_buffer.len() >= partial_mark + cfg.partial_every
+                    {
+                        // Never block the audio loop for a partial; if the
+                        // inference queue is full, the next one will do.
+                        partial_mark = audio_buffer.len();
+                        let _ = inference_tx.try_send(Job::Partial(audio_buffer.clone()));
+                    }
                 }
-              }
             }
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                 if audio_buffer.len() >= MIN_BUFFER_SAMPLES {
-                    let _ = inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
+                    let _ =
+                        inference_tx.blocking_send(Job::Final(std::mem::take(&mut audio_buffer)));
                 }
                 break;
             }
@@ -487,7 +502,10 @@ impl std::fmt::Debug for WhisperProvider {
 
 #[async_trait::async_trait]
 impl SttProvider for WhisperProvider {
-    #[expect(clippy::too_many_lines, reason = "spawns two blocking tasks with setup; splitting would obscure the pipeline flow")]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "spawns two blocking tasks with setup; splitting would obscure the pipeline flow"
+    )]
     async fn start(
         &self,
         audio_rx: Receiver<Vec<i16>>,
@@ -513,7 +531,13 @@ impl SttProvider for WhisperProvider {
         let vad_cancelled = cancelled.clone();
         let vad_event_tx = event_tx.clone();
         let vad_handle = tokio::task::spawn_blocking(move || {
-            run_segmenter(audio_rx, inference_tx, vad_event_tx, vad_cancelled, WHISPER_PARTIALS);
+            run_segmenter(
+                audio_rx,
+                inference_tx,
+                vad_event_tx,
+                vad_cancelled,
+                WHISPER_PARTIALS,
+            );
         });
 
         // ── Task 2: Whisper inference ────────────────────────────────────
@@ -529,9 +553,9 @@ impl SttProvider for WhisperProvider {
                 Ok(ctx) => ctx,
                 Err(e) => {
                     log::error!("[Whisper] Failed to load model: {e}");
-                    let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(
-                        format!("Failed to load Whisper model: {e}"),
-                    ));
+                    let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(format!(
+                        "Failed to load Whisper model: {e}"
+                    )));
                     return;
                 }
             };
@@ -540,9 +564,9 @@ impl SttProvider for WhisperProvider {
                 Ok(s) => s,
                 Err(e) => {
                     log::error!("[Whisper] Failed to create state: {e}");
-                    let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(
-                        format!("Failed to create Whisper state: {e}"),
-                    ));
+                    let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(format!(
+                        "Failed to create Whisper state: {e}"
+                    )));
                     return;
                 }
             };
@@ -556,7 +580,8 @@ impl SttProvider for WhisperProvider {
             // A finished phrase taken off the queue but not yet transcribed.
             let mut pending_job: Option<Job> = None;
 
-            while let Some((audio_i16, is_partial)) = next_job(&mut inference_rx, &mut pending_job) {
+            while let Some((audio_i16, is_partial)) = next_job(&mut inference_rx, &mut pending_job)
+            {
                 if inf_cancelled.load(Ordering::SeqCst) {
                     break;
                 }
@@ -565,9 +590,7 @@ impl SttProvider for WhisperProvider {
                 level_volume(&mut audio_f32);
 
                 let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-                params.set_language(Some(
-                    language.as_deref().unwrap_or("en"),
-                ));
+                params.set_language(Some(language.as_deref().unwrap_or("en")));
                 params.set_n_threads(n_threads);
                 params.set_print_progress(false);
                 params.set_print_special(false);
@@ -586,9 +609,9 @@ impl SttProvider for WhisperProvider {
                 let start = std::time::Instant::now();
                 if let Err(e) = state.full(params, &audio_f32) {
                     log::error!("[Whisper] Inference error: {e}");
-                    let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(
-                        format!("Whisper inference error: {e}"),
-                    ));
+                    let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(format!(
+                        "Whisper inference error: {e}"
+                    )));
                     continue;
                 }
                 let elapsed = start.elapsed();
@@ -606,8 +629,10 @@ impl SttProvider for WhisperProvider {
 
                 if is_partial {
                     if !text.is_empty() {
-                        let _ = inf_event_tx
-                            .blocking_send(TranscriptEvent::Partial { transcript: text, words });
+                        let _ = inf_event_tx.blocking_send(TranscriptEvent::Partial {
+                            transcript: text,
+                            words,
+                        });
                     }
                     continue;
                 }
@@ -653,9 +678,16 @@ mod chorus_tests {
     fn queued_finals_are_joined_and_partials_dropped() {
         let (merged, rest) = merge_queued_finals(
             vec![1; 100],
-            vec![Job::Partial(vec![9; 50]), Job::Final(vec![2; 200]), Job::Final(vec![3; 300])],
+            vec![
+                Job::Partial(vec![9; 50]),
+                Job::Final(vec![2; 200]),
+                Job::Final(vec![3; 300]),
+            ],
         );
-        assert_eq!(merged.len(), 100 + MERGE_GAP_SAMPLES + 200 + MERGE_GAP_SAMPLES + 300);
+        assert_eq!(
+            merged.len(),
+            100 + MERGE_GAP_SAMPLES + 200 + MERGE_GAP_SAMPLES + 300
+        );
         assert!(!merged.contains(&9));
         assert_eq!(merged[0], 1);
         assert_eq!(*merged.last().unwrap(), 3);
@@ -670,20 +702,28 @@ mod chorus_tests {
             vec![Job::Final(vec![2; 5000]), Job::Final(vec![3; 100])],
         );
         assert_eq!(merged.len(), big);
-        let Some(Job::Final(rest)) = rest else { panic!("expected a second batch") };
+        let Some(Job::Final(rest)) = rest else {
+            panic!("expected a second batch")
+        };
         assert_eq!(rest.len(), 5000 + MERGE_GAP_SAMPLES + 100);
         assert_eq!(rest[0], 2);
     }
 
     #[test]
     fn quiet_audio_is_raised_loud_audio_untouched() {
-        let mut quiet: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.05 } else { -0.05 }).collect();
+        let mut quiet: Vec<f32> = (0..1000)
+            .map(|i| if i % 2 == 0 { 0.05 } else { -0.05 })
+            .collect();
         super::level_volume(&mut quiet);
         assert!((quiet[0] - 0.4).abs() < 1e-6, "capped at 8x: {}", quiet[0]);
-        let mut loud: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.7 } else { -0.7 }).collect();
+        let mut loud: Vec<f32> = (0..1000)
+            .map(|i| if i % 2 == 0 { 0.7 } else { -0.7 })
+            .collect();
         super::level_volume(&mut loud);
         assert!((loud[0] - 0.7).abs() < 1e-6);
-        let mut medium: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.25 } else { -0.25 }).collect();
+        let mut medium: Vec<f32> = (0..1000)
+            .map(|i| if i % 2 == 0 { 0.25 } else { -0.25 })
+            .collect();
         super::level_volume(&mut medium);
         assert!((medium[0] - 0.5).abs() < 1e-6);
     }

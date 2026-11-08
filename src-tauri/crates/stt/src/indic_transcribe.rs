@@ -63,6 +63,58 @@ struct TokenizerFile {
     prompts: serde_json::Value,
 }
 
+/// Steers decoding toward Bible book names: among the model's top
+/// candidates for the next token, one that starts (or continues) a book
+/// name gets a bonus in log-probability. Only re-ranks what the model
+/// already thinks likely, so ordinary speech is left alone.
+#[derive(Debug, Clone)]
+pub struct BookBias {
+    /// Every prefix of every book spelling.
+    prefixes: std::collections::HashSet<String>,
+    /// Bonus for a token that begins a book name.
+    start: f32,
+    /// Bonus for a token that continues one already begun.
+    cont: f32,
+}
+
+/// Candidates looked at per step.
+const BIAS_TOP_K: usize = 8;
+/// Default bonuses (log-probability), measured on the test sermon.
+pub const DEFAULT_BIAS: (f32, f32) = (0.0, 0.0);
+
+impl BookBias {
+    pub fn new(start: f32, cont: f32) -> Option<Self> {
+        if start <= 0.0 && cont <= 0.0 {
+            return None;
+        }
+        let mut prefixes = std::collections::HashSet::new();
+        for name in chorus_refparse::malayalam::book_spellings() {
+            let mut p = String::new();
+            for c in name.chars() {
+                p.push(c);
+                prefixes.insert(p.clone());
+            }
+        }
+        Some(Self {
+            prefixes,
+            start,
+            cont,
+        })
+    }
+
+    /// `CHORUS_IT_BIAS="start,cont"` overrides the default.
+    pub fn from_env_or_default() -> Option<Self> {
+        let (start, cont) = std::env::var("CHORUS_IT_BIAS")
+            .ok()
+            .and_then(|v| {
+                let (a, b) = v.split_once(',')?;
+                Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+            })
+            .unwrap_or(DEFAULT_BIAS);
+        Self::new(start, cont)
+    }
+}
+
 /// A loaded Indic-Transcribe model.
 pub struct IndicTranscribe {
     encoder: Session,
@@ -71,11 +123,14 @@ pub struct IndicTranscribe {
     special_count: usize,
     stop: [i64; 2],
     prompt: Vec<i64>,
+    bias: Option<BookBias>,
 }
 
 impl std::fmt::Debug for IndicTranscribe {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IndicTranscribe").field("prompt", &self.prompt).finish_non_exhaustive()
+        f.debug_struct("IndicTranscribe")
+            .field("prompt", &self.prompt)
+            .finish_non_exhaustive()
     }
 }
 
@@ -83,7 +138,8 @@ impl IndicTranscribe {
     /// Load the model from `dir` for language `lang` ("ml").
     pub fn load(dir: &Path, lang: &str, n_threads: usize) -> Result<Self, String> {
         let session = |prefix: &str| -> Result<Session, String> {
-            let path = find_onnx(dir, prefix).ok_or_else(|| format!("no {prefix}*.onnx in {}", dir.display()))?;
+            let path = find_onnx(dir, prefix)
+                .ok_or_else(|| format!("no {prefix}*.onnx in {}", dir.display()))?;
             let fail = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
             Session::builder()
                 .map_err(|e| fail(&e))?
@@ -96,8 +152,10 @@ impl IndicTranscribe {
         };
         let encoder = session("encoder")?;
         let decoder = session("decoder")?;
-        let text = std::fs::read_to_string(dir.join("tokenizer.json")).map_err(|e| format!("tokenizer.json: {e}"))?;
-        let tok: TokenizerFile = serde_json::from_str(&text).map_err(|e| format!("tokenizer.json: {e}"))?;
+        let text = std::fs::read_to_string(dir.join("tokenizer.json"))
+            .map_err(|e| format!("tokenizer.json: {e}"))?;
+        let tok: TokenizerFile =
+            serde_json::from_str(&text).map_err(|e| format!("tokenizer.json: {e}"))?;
         let prompt: Vec<i64> = match &tok.prompts {
             serde_json::Value::Object(m) => m.get(lang).cloned(),
             other => Some(other.clone()),
@@ -111,6 +169,7 @@ impl IndicTranscribe {
             special_count: tok.special_count,
             stop: [tok.eos_id, tok.pad_id],
             prompt,
+            bias: BookBias::from_env_or_default(),
         })
     }
 
@@ -131,9 +190,17 @@ impl IndicTranscribe {
             .encoder
             .run(ort::inputs!["audio" => Tensor::from_array(([1usize, n], wav)).map_err(err)?])
             .map_err(err)?;
-        let (k_shape, k) = enc_out["cross_k"].try_extract_tensor::<f32>().map_err(err)?;
-        let (v_shape, v) = enc_out["cross_v"].try_extract_tensor::<f32>().map_err(err)?;
-        let to_dims = |s: &ort::value::Shape| s.iter().map(|&d| usize::try_from(d).unwrap_or(0)).collect::<Vec<_>>();
+        let (k_shape, k) = enc_out["cross_k"]
+            .try_extract_tensor::<f32>()
+            .map_err(err)?;
+        let (v_shape, v) = enc_out["cross_v"]
+            .try_extract_tensor::<f32>()
+            .map_err(err)?;
+        let to_dims = |s: &ort::value::Shape| {
+            s.iter()
+                .map(|&d| usize::try_from(d).unwrap_or(0))
+                .collect::<Vec<_>>()
+        };
         // Made once, passed by reference to every decoder step.
         let cross_k = Tensor::from_array((to_dims(k_shape), k.to_vec())).map_err(err)?;
         let cross_v = Tensor::from_array((to_dims(v_shape), v.to_vec())).map_err(err)?;
@@ -143,6 +210,8 @@ impl IndicTranscribe {
         let (mut past_k, mut past_v): (Vec<f32>, Vec<f32>) = (Vec::new(), Vec::new());
         let mut ids = self.prompt.clone();
         let mut out: Vec<i64> = Vec::new();
+        // The word being written, for the book-name bias.
+        let mut word = String::new();
         for _ in 0..MAX_TOKENS {
             let past = past_k.len() / step;
             let shape = [past, LAYERS, HEADS, HEAD_DIM];
@@ -155,11 +224,13 @@ impl IndicTranscribe {
             ];
             let dec_out = self.decoder.run(inputs).map_err(err)?;
             let (_, logits) = dec_out["logits"].try_extract_tensor::<f32>().map_err(err)?;
-            let next = logits
-                .iter()
-                .enumerate()
-                .max_by(|a, b| a.1.total_cmp(b.1))
-                .map_or(self.stop[0], |(i, _)| i64::try_from(i).unwrap_or(0));
+            let next = pick(
+                &self.pieces,
+                self.special_count,
+                self.bias.as_ref(),
+                logits,
+                &mut word,
+            );
             let (_, nk) = dec_out["new_k"].try_extract_tensor::<f32>().map_err(err)?;
             let (_, nv) = dec_out["new_v"].try_extract_tensor::<f32>().map_err(err)?;
             past_k.extend_from_slice(nk);
@@ -178,6 +249,70 @@ impl IndicTranscribe {
             .collect();
         Ok(text.replace('\u{2581}', " ").trim().to_string())
     }
+}
+
+/// The next token: the most likely one, or with the book-name bias the
+/// best of the top candidates after bonuses. Tracks the current word.
+fn pick(
+    pieces: &[String],
+    special_count: usize,
+    bias: Option<&BookBias>,
+    logits: &[f32],
+    word: &mut String,
+) -> i64 {
+    let best = logits
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map_or(0, |(i, _)| i);
+    let piece = |t: usize| {
+        (t >= special_count)
+            .then(|| pieces.get(t).map(String::as_str))
+            .flatten()
+    };
+    let chosen = match bias {
+        None => best,
+        Some(bias) => {
+            let mut top: Vec<usize> = (0..logits.len()).collect();
+            let k = BIAS_TOP_K.min(top.len());
+            top.select_nth_unstable_by(k - 1, |&a, &b| logits[b].total_cmp(&logits[a]));
+            top.truncate(k);
+            let lse = {
+                let m = logits[best];
+                m + logits.iter().map(|&x| (x - m).exp()).sum::<f32>().ln()
+            };
+            top.into_iter()
+                .map(|t| {
+                    let bonus = match piece(t) {
+                        Some(p) if p.starts_with('\u{2581}') => {
+                            let w = &p['\u{2581}'.len_utf8()..];
+                            if !w.is_empty() && bias.prefixes.contains(w) {
+                                bias.start
+                            } else {
+                                0.0
+                            }
+                        }
+                        Some(p) if !word.is_empty() => {
+                            if bias.prefixes.contains(&format!("{word}{p}")) {
+                                bias.cont
+                            } else {
+                                0.0
+                            }
+                        }
+                        _ => 0.0,
+                    };
+                    (t, logits[t] - lse + bonus)
+                })
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map_or(best, |(t, _)| t)
+        }
+    };
+    match piece(chosen) {
+        Some(p) if p.starts_with('\u{2581}') => *word = p['\u{2581}'.len_utf8()..].to_string(),
+        Some(p) => word.push_str(p),
+        None => word.clear(),
+    }
+    i64::try_from(chosen).unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +334,11 @@ use crate::whisper::{i16_to_f32, level_volume, next_job, run_segmenter, Job, Par
 /// CPU, and a preview still running would hold up the final of the phrase.
 /// References are read from finals (pauses inside a Malayalam reference are
 /// joined by the detector). Quiet speech counts, as for `IndicConformer`.
-const TIMING: PartialTiming = PartialTiming { partial_min: 16_000 * 3600, partial_every: 16_000 * 3600, voice_rms: 0.005 };
+const TIMING: PartialTiming = PartialTiming {
+    partial_min: 16_000 * 3600,
+    partial_every: 16_000 * 3600,
+    voice_rms: 0.005,
+};
 
 /// Live Malayalam transcription with Indic-Transcribe.
 pub struct IndicTranscribeProvider {
@@ -210,7 +349,11 @@ pub struct IndicTranscribeProvider {
 
 impl IndicTranscribeProvider {
     pub fn new(model_dir: PathBuf, n_threads: usize) -> Self {
-        Self { model_dir, n_threads: n_threads.max(1), cancelled: Arc::new(AtomicBool::new(false)) }
+        Self {
+            model_dir,
+            n_threads: n_threads.max(1),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
     }
 }
 
@@ -224,7 +367,10 @@ impl std::fmt::Debug for IndicTranscribeProvider {
 }
 
 /// Words with even timing over the clip.
-#[expect(clippy::cast_precision_loss, reason = "clip lengths and word counts are small")]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "clip lengths and word counts are small"
+)]
 fn words_of(text: &str, duration_s: f64) -> Vec<Word> {
     let n = text.split_whitespace().count();
     if n == 0 {
@@ -235,7 +381,9 @@ fn words_of(text: &str, duration_s: f64) -> Vec<Word> {
         .enumerate()
         .map(|(i, w)| Word {
             text: w
-                .trim_matches(|c: char| !(c.is_alphanumeric() || ('\u{0D00}'..='\u{0D7F}').contains(&c)))
+                .trim_matches(|c: char| {
+                    !(c.is_alphanumeric() || ('\u{0D00}'..='\u{0D7F}').contains(&c))
+                })
                 .to_lowercase(),
             start: i as f64 * step,
             end: (i + 1) as f64 * step,
@@ -278,8 +426,9 @@ impl SttProvider for IndicTranscribeProvider {
                 Ok(m) => m,
                 Err(e) => {
                     log::error!("[IndicTranscribe] Failed to load model: {e}");
-                    let _ = inf_event_tx
-                        .blocking_send(TranscriptEvent::Error(format!("Failed to load the Indic-Transcribe model: {e}")));
+                    let _ = inf_event_tx.blocking_send(TranscriptEvent::Error(format!(
+                        "Failed to load the Indic-Transcribe model: {e}"
+                    )));
                     return;
                 }
             };
@@ -289,7 +438,8 @@ impl SttProvider for IndicTranscribeProvider {
             );
 
             let mut pending_job: Option<Job> = None;
-            while let Some((audio_i16, is_partial)) = next_job(&mut inference_rx, &mut pending_job) {
+            while let Some((audio_i16, is_partial)) = next_job(&mut inference_rx, &mut pending_job)
+            {
                 if cancelled.load(Ordering::SeqCst) {
                     break;
                 }
@@ -312,7 +462,10 @@ impl SttProvider for IndicTranscribeProvider {
                 let words = words_of(&text, duration_s);
                 if is_partial {
                     if !text.is_empty() {
-                        let _ = inf_event_tx.blocking_send(TranscriptEvent::Partial { transcript: text, words });
+                        let _ = inf_event_tx.blocking_send(TranscriptEvent::Partial {
+                            transcript: text,
+                            words,
+                        });
                     }
                     continue;
                 }

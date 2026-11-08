@@ -4159,6 +4159,7 @@ name = "rhema-stt"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chorus-refparse",
  "crossbeam-channel",
  "futures-util",
  "log",

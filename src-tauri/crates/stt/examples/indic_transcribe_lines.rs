@@ -15,7 +15,8 @@ fn read_wav(path: &str) -> Vec<f32> {
     let mut i = 12;
     while i + 8 <= bytes.len() {
         let id = &bytes[i..i + 4];
-        let size = u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
+        let size =
+            u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
         if id == b"data" {
             let end = (i + 8 + size).min(bytes.len());
             return bytes[i + 8..end]
@@ -30,17 +31,27 @@ fn read_wav(path: &str) -> Vec<f32> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() >= 4, "usage: indic_transcribe_lines <model_dir> <threads> <clip.wav>...");
+    assert!(
+        args.len() >= 4,
+        "usage: indic_transcribe_lines <model_dir> <threads> <clip.wav>..."
+    );
     let threads: usize = args[2].parse().expect("threads");
     let t = Instant::now();
     let mut model =
-        rhema_stt::indic_transcribe::IndicTranscribe::load(Path::new(&args[1]), "ml", threads).expect("load model");
+        rhema_stt::indic_transcribe::IndicTranscribe::load(Path::new(&args[1]), "ml", threads)
+            .expect("load model");
     eprintln!("loaded in {:.1} s", t.elapsed().as_secs_f64());
     let _ = model.transcribe(&vec![0.0f32; 16_000]);
     for path in &args[3..] {
         let audio = read_wav(path);
         let t = Instant::now();
-        let text = model.transcribe(&audio).unwrap_or_else(|e| format!("ERROR {e}"));
-        println!("{path}\t{:.3}\t{}", t.elapsed().as_secs_f64(), text.replace(['\t', '\n'], " "));
+        let text = model
+            .transcribe(&audio)
+            .unwrap_or_else(|e| format!("ERROR {e}"));
+        println!(
+            "{path}\t{:.3}\t{}",
+            t.elapsed().as_secs_f64(),
+            text.replace(['\t', '\n'], " ")
+        );
     }
 }

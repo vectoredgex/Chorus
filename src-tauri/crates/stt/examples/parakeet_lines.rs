@@ -15,7 +15,8 @@ fn read_wav(path: &str) -> Vec<f32> {
     let mut i = 12;
     while i + 8 <= bytes.len() {
         let id = &bytes[i..i + 4];
-        let size = u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
+        let size =
+            u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
         if id == b"data" {
             let end = (i + 8 + size).min(bytes.len());
             return bytes[i + 8..end]
@@ -30,11 +31,17 @@ fn read_wav(path: &str) -> Vec<f32> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() >= 4, "usage: parakeet_lines <model_dir> <threads> <clip.wav>...");
+    assert!(
+        args.len() >= 4,
+        "usage: parakeet_lines <model_dir> <threads> <clip.wav>..."
+    );
     let threads: i32 = args[2].parse().expect("threads");
     // A Malayalam IndicConformer folder is recognised by its files.
     let dir = Path::new(&args[1]);
-    let model = if rhema_stt::parakeet::model_present_for(rhema_stt::SherpaModel::IndicConformerMalayalam, dir) {
+    let model = if rhema_stt::parakeet::model_present_for(
+        rhema_stt::SherpaModel::IndicConformerMalayalam,
+        dir,
+    ) {
         rhema_stt::SherpaModel::IndicConformerMalayalam
     } else {
         rhema_stt::SherpaModel::ParakeetEnglish
@@ -45,6 +52,10 @@ fn main() {
         let audio = read_wav(path);
         let t = Instant::now();
         let text = rhema_stt::parakeet::transcribe(&rec, &audio);
-        println!("{path}\t{:.3}\t{}", t.elapsed().as_secs_f64(), text.replace(['\t', '\n'], " "));
+        println!(
+            "{path}\t{:.3}\t{}",
+            t.elapsed().as_secs_f64(),
+            text.replace(['\t', '\n'], " ")
+        );
     }
 }

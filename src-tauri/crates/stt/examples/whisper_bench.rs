@@ -21,7 +21,8 @@ fn read_wav(path: &str) -> Vec<f32> {
     let mut i = 12;
     while i + 8 <= bytes.len() {
         let id = &bytes[i..i + 4];
-        let size = u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
+        let size =
+            u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
         if id == b"data" {
             let end = (i + 8 + size).min(bytes.len());
             return bytes[i + 8..end]
@@ -34,7 +35,13 @@ fn read_wav(path: &str) -> Vec<f32> {
     panic!("{path}: no data chunk");
 }
 
-fn transcribe(state: &mut whisper_rs::WhisperState, audio: &[f32], threads: i32, ctx: i32, prompt: bool) -> (String, f64) {
+fn transcribe(
+    state: &mut whisper_rs::WhisperState,
+    audio: &[f32],
+    threads: i32,
+    ctx: i32,
+    prompt: bool,
+) -> (String, f64) {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_language(Some("en"));
     params.set_n_threads(threads);
@@ -66,7 +73,10 @@ fn transcribe(state: &mut whisper_rs::WhisperState, audio: &[f32], threads: i32,
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() >= 4, "usage: whisper_bench <model> <threads> <clip.wav>...");
+    assert!(
+        args.len() >= 4,
+        "usage: whisper_bench <model> <threads> <clip.wav>..."
+    );
     let model = &args[1];
     let threads: i32 = args[2].parse().expect("threads");
 
