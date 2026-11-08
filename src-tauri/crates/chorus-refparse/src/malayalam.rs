@@ -490,6 +490,16 @@ fn classify(word: &str) -> Vec<(String, Tok)> {
     if let Some(parts) = split_numbers(&w) {
         return parts;
     }
+    // Misheard vowels in a number: "വന്നാം" (ഒന്നാം), "നൂറ്റിയേഞ്ചാം"
+    // (നൂറ്റിയഞ്ചാം). Only when the word is no number as heard.
+    for alt in [w.replacen("വന്നാ", "ഒന്നാ", 1), w.replace("യേ", "യ")] {
+        if alt != w {
+            // "വന്നു" (came) stays a word: only the ordinal "വന്നാം".
+            if let Some(n) = match_number(&alt).filter(|n| n.ordinal || !w.starts_with("വന്ന")) {
+                return vec![(alt, Tok::Num(n))];
+            }
+        }
+    }
     vec![(w, Tok::Other)]
 }
 
@@ -575,8 +585,11 @@ fn split_merged(w: &str, fuzzy: bool) -> Option<Vec<(String, Tok)>> {
         {
             continue;
         }
+        // The name's last letter may be lost in the join: "റോമട്ടാം" is
+        // റോമർ (റോമര്) എട്ടാം.
         let exact = [head.clone(), format!("{head}{VIRAMA}"), format!("{head}ം")]
             .into_iter()
+            .chain(["ര", "ന", "ല", "ള", "ണ"].iter().map(|c| format!("{head}{c}{VIRAMA}")))
             .find_map(|h| {
                 if let Some(t @ Tok::Marker(_)) = match_word(&h) {
                     return Some(t);

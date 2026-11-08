@@ -107,7 +107,7 @@ pub const ALIASES: &[(&str, Target)] = &[
     // --- Law ---
     ("genesis", Target::One(1)), ("gen", Target::One(1)), ("genisis", Target::One(1)),
     ("exodus", Target::One(2)), ("exod", Target::One(2)), ("exodis", Target::One(2)),
-    ("leviticus", Target::One(3)), ("lev", Target::One(3)), ("leviticous", Target::One(3)),
+    ("leviticus", Target::One(3)), ("lev", Target::One(3)), ("leviticous", Target::One(3)), ("levitikus", Target::One(3)),
     ("numbers", Target::One(4)), ("num", Target::One(4)),
     ("deuteronomy", Target::One(5)), ("deut", Target::One(5)), ("dueteronomy", Target::One(5)),
     ("deuteronomie", Target::One(5)),
@@ -123,7 +123,7 @@ pub const ALIASES: &[(&str, Target)] = &[
     ("chronicle", Target::Family { ids: [13, 14, 0], default_id: Some(13) }),
     ("chron", Target::Family { ids: [13, 14, 0], default_id: None }),
     ("ezra", Target::One(15)),
-    ("nehemiah", Target::One(16)), ("neh", Target::One(16)), ("nehemia", Target::One(16)),
+    ("nehemiah", Target::One(16)), ("neh", Target::One(16)), ("nehemia", Target::One(16)), ("nehemaya", Target::One(16)),
     ("esther", Target::One(17)), ("esth", Target::One(17)), ("ester", Target::One(17)),
     // --- Poetry / wisdom ---
     ("job", Target::One(18)),
@@ -148,7 +148,7 @@ pub const ALIASES: &[(&str, Target)] = &[
     ("hosea", Target::One(28)), ("hos", Target::One(28)), ("hosiah", Target::One(28)),
     ("joel", Target::One(29)),
     ("amos", Target::One(30)),
-    ("obadiah", Target::One(31)), ("obad", Target::One(31)), ("obadia", Target::One(31)),
+    ("obadiah", Target::One(31)), ("obad", Target::One(31)), ("obadia", Target::One(31)), ("obadaya", Target::One(31)),
     ("jonah", Target::One(32)), ("jona", Target::One(32)),
     ("micah", Target::One(33)), ("mic", Target::One(33)),
     ("nahum", Target::One(34)), ("nah", Target::One(34)),
@@ -156,8 +156,12 @@ pub const ALIASES: &[(&str, Target)] = &[
     ("habbakuk", Target::One(35)), ("habakkuk's", Target::One(35)),
     ("zephaniah", Target::One(36)), ("zeph", Target::One(36)), ("zephania", Target::One(36)),
     ("haggai", Target::One(37)), ("hag", Target::One(37)), ("hagai", Target::One(37)),
+    // Parakeet mishearings (live test 2026-11-07).
+    ("agai", Target::One(37)), ("haggay", Target::One(37)), ("hagay", Target::One(37)),
     ("zechariah", Target::One(38)), ("zech", Target::One(38)), ("zachariah", Target::One(38)),
-    ("zecharia", Target::One(38)),
+    ("zecharia", Target::One(38)), ("zacharia", Target::One(38)), ("zachariya", Target::One(38)),
+    ("zakaria", Target::One(38)), ("zakariya", Target::One(38)), ("zakria", Target::One(38)),
+    ("sakriya", Target::One(38)), ("sakaria", Target::One(38)), ("sakariya", Target::One(38)),
     ("malachi", Target::One(39)), ("mal", Target::One(39)), ("malaki", Target::One(39)),
     // --- Gospels & Acts ---
     ("matthew", Target::One(40)), ("matt", Target::One(40)), ("mt", Target::One(40)),

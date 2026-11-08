@@ -325,3 +325,8 @@ Then next source. => Romans 3:7 [M]
 Next was => Romans 3:8 [M]
 Till next shows. => Romans 3:9 [M]
 the next ones were better than the first ones I think => NONE
+
+# Parakeet mishearings of short prophet names (live test 2026-11-07).
+Agai one one => Haggai 1:1 [H]
+Sakriya two one => Zechariah 2:1 [H]
+Zakria three one => Zechariah 3:1 [H]
