@@ -59,3 +59,27 @@ jobs:
           clip=$(ls $d/test_wavs/*.wav | head -1)
           src-tauri/target/release/examples/parakeet_lines.exe $d 4 "$clip" | tee out.txt
           test -s out.txt
+
+      # Indic-Transcribe (Malayalam) needs onnxruntime. Can it share the
+      # onnxruntime.dll that sherpa-onnx ships, or does it need its own?
+      - name: onnxruntime version shipped with sherpa-onnx
+        id: ortver
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Recurse src-tauri/target/release -Filter onnxruntime.dll | Select-Object -First 1
+          $v = $dll.VersionInfo.ProductVersion
+          Write-Output "onnxruntime.dll: $($dll.FullName) version $v"
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Does Indic-Transcribe int8 run on that onnxruntime?
+        shell: bash
+        continue-on-error: true
+        run: |
+          v="${{ steps.ortver.outputs.version }}"
+          pip install --quiet soundfile numpy huggingface_hub "onnxruntime==$(echo $v | cut -d. -f1-3)"
+          python -c "import onnxruntime; print('onnxruntime', onnxruntime.__version__)"
+          d=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          clip=$(ls $d/test_wavs/*.wav | head -1)
+          python scripts/chorus/ml_transcribe.py indic-transcribe-int8 4 "$clip"
