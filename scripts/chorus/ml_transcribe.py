@@ -157,6 +157,26 @@ def koyal(threads):
     return run
 
 
+def indicconformer_official(decoder, threads):
+    """AI4Bharat's own IndicConformer 600M (gated on Hugging Face), with
+    its CTC or RNNT decoder."""
+    import os
+    import numpy as np
+    import torch
+    from transformers import AutoModel
+    torch.set_num_threads(threads)
+    model = AutoModel.from_pretrained("ai4bharat/indic-conformer-600m-multilingual",
+                                      trust_remote_code=True, token=os.environ.get("HF_TOKEN"))
+
+    def run(wav):
+        x = torch.from_numpy(np.asarray(wav, dtype=np.float32)).unsqueeze(0)
+        out = model(x, "ml", decoder)
+        if isinstance(out, (list, tuple)):
+            out = out[0]
+        return str(out)
+    return run
+
+
 def main():
     engine, threads, clips = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
     if engine == "indicconformer":
@@ -171,6 +191,10 @@ def main():
         run = omnilingual("300M", threads)
     elif engine == "omnilingual-1b":
         run = omnilingual("1B", threads)
+    elif engine == "indicconformer-rnnt":
+        run = indicconformer_official("rnnt", threads)
+    elif engine == "indicconformer-ctc":
+        run = indicconformer_official("ctc", threads)
     elif engine == "koyal":
         run = koyal(threads)
     elif engine == "indic-transcribe":

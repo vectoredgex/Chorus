@@ -73,7 +73,9 @@ jobs:
         # Whisper (medium-ml, large-v3-turbo) was dropped after taking over
         # 20 minutes for 42 short clips on CI CPUs; IndicConformer took 0.4 s
         # per line. Run them again with workflow_dispatch if ever needed.
-        engine: [indicconformer]
+        # koyal and indicconformer-rnnt are gated: they need the HF_TOKEN
+        # repo secret.
+        engine: [indicconformer, koyal, indicconformer-rnnt]
         voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
@@ -88,6 +90,9 @@ jobs:
         run: |
           pip install --quiet soundfile numpy huggingface_hub
           case "${{ matrix.engine }}" in
+            indicconformer-rnnt|indicconformer-ctc)
+               pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+               pip install --quiet transformers onnxruntime ;;
             indicconformer*|omnilingual*) pip install --quiet sherpa-onnx ;;
             koyal) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet "nemo_toolkit[asr]" ;;
@@ -109,6 +114,9 @@ jobs:
         run: |
           mkdir -p out
           E=${{ matrix.engine }}; V=${{ matrix.voice }}; T=$(nproc)
+          case "$E" in koyal|indicconformer-rnnt|indicconformer-ctc)
+            if [ -z "$HF_TOKEN" ]; then echo "::warning::$E skipped: add the HF_TOKEN repo secret"; exit 0; fi ;;
+          esac
           python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??.wav) > out/${E}_${V}_clear.tsv
           for c in noisy hall fast; do
             python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??_$c.wav) > out/${E}_${V}_$c.tsv
