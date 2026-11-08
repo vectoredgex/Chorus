@@ -361,6 +361,10 @@ const TIMING: PartialTiming = PartialTiming {
     voice_rms: 0.005,
 };
 
+/// The model stays loaded after Stop (about 2 GB of memory), so the next
+/// Start does not wait 7-11 s to load it again.
+static LOADED: std::sync::Mutex<Option<(PathBuf, usize, IndicTranscribe)>> = std::sync::Mutex::new(None);
+
 /// Live Malayalam transcription with Indic-Transcribe.
 pub struct IndicTranscribeProvider {
     model_dir: PathBuf,
@@ -443,7 +447,13 @@ impl SttProvider for IndicTranscribeProvider {
         let inf_event_tx = event_tx.clone();
         let inf_handle = tokio::task::spawn_blocking(move || {
             let load_start = std::time::Instant::now();
-            let mut model = match IndicTranscribe::load(&model_dir, "ml", n_threads) {
+            // Kept from the last session: Start is instant after the first.
+            let kept = LOADED.lock().ok().and_then(|mut k| k.take()).filter(|k| k.0 == model_dir && k.1 == n_threads);
+            let loaded = match kept {
+                Some((_, _, m)) => Ok(m),
+                None => IndicTranscribe::load(&model_dir, "ml", n_threads),
+            };
+            let mut model = match loaded {
                 Ok(m) => m,
                 Err(e) => {
                     log::error!("[IndicTranscribe] Failed to load model: {e}");
@@ -513,6 +523,9 @@ impl SttProvider for IndicTranscribeProvider {
                 let _ = inf_event_tx.blocking_send(TranscriptEvent::UtteranceEnd);
             }
             log::info!("[IndicTranscribe] Inference task exiting");
+            if let Ok(mut k) = LOADED.lock() {
+                *k = Some((model_dir, n_threads, model));
+            }
         });
 
         let _ = tokio::join!(vad_handle, inf_handle);

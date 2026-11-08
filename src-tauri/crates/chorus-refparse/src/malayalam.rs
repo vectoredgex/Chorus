@@ -281,7 +281,7 @@ fn book_table() -> &'static Vec<(String, &'static str)> {
 /// How the Indic-Transcribe engine often writes some names. Matched
 /// only exactly as written, never used for guessing.
 const HEARD_AS: &[(&str, &[&str])] = &[
-    ("micah", &["മിഹാ", "മിഹ", "മീഹാ"]),
+    ("micah", &["മിഹാ", "മിഹ", "മീഹാ", "മിഖ", "മീഖ", "മിക", "മീക", "മീക്ക", "മിഥ", "മീഥാ"]),
     ("romans", &["റോമ", "റോവർ", "റോബർ"]),
     ("galatians", &["ദലാത്യർ", "ദെലാത്യർ", "ദലാതിർ", "ദെലാത്തിർ", "ദലാത്തിർ", "ഡെലാത്യർ"]),
 ];
@@ -911,9 +911,22 @@ pub fn carry_tail(text: &str) -> Option<String> {
         let n = b.name.to_ascii_lowercase();
         n == *w || n.ends_with(&format!(" {w}")) || n.starts_with(&format!("{w} "))
     }) || is_family(w));
-    let mut start = toks.iter().rposition(|ts| ts.iter().any(is_book)).unwrap_or(0);
-    // Keep "ഒന്നാം" before "യോഹന്നാൻ".
-    if start > 0 && toks[start - 1].iter().any(|t| matches!(t, Tok::Num(n) if n.ordinal && n.value <= 3)) {
+    let numbered_at = |i: usize| {
+        i > 0
+            && toks[i - 1].iter().any(|t| match t {
+                Tok::Num(n) => n.value <= 3 && !n.and,
+                Tok::Word(w) => matches!(w.as_str(), "one" | "two" | "three"),
+                _ => false,
+            })
+    };
+    // A book, or a misheard name after "ഒന്ന്"/"രണ്ട്" that can only be a
+    // numbered book ("ഒന്ന് തെസ്ലോനിക്കർ").
+    let mut start = (0..toks.len())
+        .rev()
+        .find(|&i| toks[i].iter().any(is_book) || (numbered_at(i) && fuzzy_book_in(&words[i], true).is_some()))
+        .unwrap_or(0);
+    // Keep "ഒന്നാം" / "ഒന്ന്" / "വൺ" before "യോഹന്നാൻ".
+    if numbered_at(start) {
         start -= 1;
     }
     let from = words.len().saturating_sub(8).max(start);
@@ -957,6 +970,16 @@ pub fn rewrite(text: &str) -> (String, bool) {
             toks[i] = Tok::Word(String::new());
             if toks.get(i + 1) == Some(&Tok::Marker("chapter")) {
                 toks[i + 1] = Tok::Word(String::new());
+            }
+        }
+    }
+
+    // A restart: "രണ്ടാം രണ്ടിന്റെ പതിനഞ്ച്" (second … of two, fifteen)
+    // is 2:15; the first "രണ്ടാം" was a false start.
+    for i in 0..toks.len().saturating_sub(1) {
+        if let (Tok::Num(a), Tok::Num(b)) = (&toks[i], &toks[i + 1]) {
+            if a.ordinal && !b.ordinal && a.value == b.value && norm(&words[i + 1]).ends_with("ന്റെ") {
+                toks[i] = Tok::Word(String::new());
             }
         }
     }

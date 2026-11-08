@@ -2717,6 +2717,19 @@ mod tests {
         assert_eq!(c, vec!["9 1:3", "9 2:3", "9 2:5"]);
     }
 
+    /// Live test 2026-11-08 16:36-16:40 (Indic-Transcribe).
+    #[test]
+    fn malayalam_live_session_six() {
+        let a0 = ml_session(&["ഒന്ന് തെസ്ലോനിക്കർ", "അഞ്ചിൻ്റെ ഒന്ന്"]);
+        assert_eq!(a0, vec!["52 5:1".to_string()], "without the line before");
+        let a = ml_session(&["യോഹന്നാൻ ഏറെ അഞ്ച്", "ഒന്ന് തെസ്ലോനിക്കർ", "അഞ്ചിൻ്റെ ഒന്ന്"]);
+        assert_eq!(a, vec!["52 5:1".to_string()]);
+        let b = ml_session(&["ഉത്തമഗീതം രണ്ടാം രണ്ടിൻ്റെ പതിനഞ്ച്"]);
+        assert_eq!(b, vec!["22 2:15".to_string()]);
+        let c = ml_session(&["മിഖ", "അഞ്ചിൻ്റെ മൂന്ന്"]);
+        assert_eq!(c, vec!["33 5:3".to_string()]);
+    }
+
     /// Like the app: partials and finals through the detector and the
     /// partial confirmer. Returns (event index, verse) for each shown.
     fn ml_stream(events: &[(bool, &str)]) -> Vec<(usize, String)> {

@@ -239,7 +239,10 @@ pub async fn start_transcription(
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .filter(|&n| n > 0)
-                .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, usize::from));
+                // Half the logical CPUs (about one per core), as for the
+                // other Malayalam engine: all 12 on a 12-thread laptop made
+                // some phrases take longer than they took to say.
+                .unwrap_or_else(|| (std::thread::available_parallelism().map_or(8, usize::from) / 2).max(2));
 
             log::info!(
                 "Starting Malayalam (Indic-Transcribe) transcription: model={}, threads={n_threads}, device_id={device_id:?}",

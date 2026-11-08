@@ -153,3 +153,11 @@
 പുറപ്പാട് ഇരുപതിൻ്റെ പന്ത്രണ്ട് => Exodus 20:12 [H]
 ലേവ്യ പുസ്തകം പതിനഞ്ചിൻ്റെ മൂന്ന് => Leviticus 15:3 [H]
 ആവർത്തന പുസ്തകം ഒന്നിൻ്റെ പതിനാല് => Deuteronomy 1:14 [H]
+# Sixth live test (Indic-Transcribe): Micah written several ways.
+മിഖ അഞ്ചിൻ്റെ മൂന്ന് => Micah 5:3 [H]
+മിക അഞ്ചാം അദ്ധ്യായം മൂന്നാം വാക്യം => Micah 5:3 [H]
+മിഥ അഞ്ച് മൂന്ന് => Micah 5:3 [H]
+മീക്ക അഞ്ചാം അദ്ധ്യായം മൂന്നാം വാക്യം => Micah 5:3 [H]
+# "മിക്ക" ("most") is an ordinary word: never Micah.
+മിക്ക രണ്ട് മൂന്ന് പേർ വന്നു => NONE
+ഉത്തമഗീതം രണ്ടാം രണ്ടിൻ്റെ പതിനഞ്ച് => Song of Solomon 2:15 [H]
