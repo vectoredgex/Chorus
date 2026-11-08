@@ -127,6 +127,7 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 libasound2-dev
           (cd src-tauri && cargo build --release --locked -p rhema-stt --features indic-transcribe --example indic_transcribe_lines)
           python3 - <<'PY'
           import os, shutil, tarfile
