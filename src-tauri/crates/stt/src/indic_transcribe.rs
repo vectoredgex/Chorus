@@ -175,6 +175,13 @@ impl IndicTranscribe {
 
     /// Transcribe one phrase of 16 kHz mono audio.
     pub fn transcribe(&mut self, audio: &[f32]) -> Result<String, String> {
+        self.transcribe_with(audio, &mut |_| {})
+    }
+
+    /// Like [`Self::transcribe`], calling `on_words` with the text so far
+    /// each time a word is complete, so a reference can be shown before
+    /// the rest of a long sentence is written.
+    pub fn transcribe_with(&mut self, audio: &[f32], on_words: &mut dyn FnMut(&str)) -> Result<String, String> {
         let err = |e: ort::Error| e.to_string();
         // Under one second: centred in a second of silence, as trained.
         let mut wav = audio.to_vec();
@@ -238,17 +245,31 @@ impl IndicTranscribe {
             if self.stop.contains(&next) {
                 break;
             }
+            let starts_word = usize::try_from(next)
+                .ok()
+                .filter(|&t| t >= self.special_count)
+                .and_then(|t| self.pieces.get(t))
+                .is_some_and(|p| p.starts_with('\u{2581}'));
+            if starts_word && !out.is_empty() {
+                on_words(&text_of(&self.pieces, self.special_count, &out));
+            }
             out.push(next);
             ids = vec![next];
         }
-        let text: String = out
-            .iter()
-            .filter_map(|&t| usize::try_from(t).ok())
-            .filter(|&t| t >= self.special_count)
-            .filter_map(|t| self.pieces.get(t).map(String::as_str))
-            .collect();
-        Ok(text.replace('\u{2581}', " ").trim().to_string())
+        Ok(text_of(&self.pieces, self.special_count, &out))
     }
+
+}
+
+/// The text of decoded tokens.
+fn text_of(pieces: &[String], special_count: usize, tokens: &[i64]) -> String {
+    let text: String = tokens
+        .iter()
+        .filter_map(|&t| usize::try_from(t).ok())
+        .filter(|&t| t >= special_count)
+        .filter_map(|t| pieces.get(t).map(String::as_str))
+        .collect();
+    text.replace('\u{2581}', " ").trim().to_string()
 }
 
 /// The next token: the most likely one, or with the book-name bias the
@@ -446,7 +467,19 @@ impl SttProvider for IndicTranscribeProvider {
                 let mut audio = i16_to_f32(&audio_i16);
                 level_volume(&mut audio);
                 let start = std::time::Instant::now();
-                let text = match model.transcribe(&audio) {
+                #[expect(clippy::cast_precision_loss, reason = "audio sample count fits in f64")]
+                let clip_s = audio_i16.len() as f64 / 16_000.0;
+                // Words so far go out as previews, so a reference at the
+                // start of a long sentence shows before the rest is written.
+                let preview_tx = inf_event_tx.clone();
+                let mut on_words = |so_far: &str| {
+                    let so_far = crate::cleanup::remove_repeats(so_far);
+                    if so_far.split_whitespace().count() >= 2 {
+                        let words = words_of(&so_far, clip_s);
+                        let _ = preview_tx.blocking_send(TranscriptEvent::Partial { transcript: so_far, words });
+                    }
+                };
+                let text = match model.transcribe_with(&audio, &mut on_words) {
                     Ok(t) => crate::cleanup::remove_repeats(&t),
                     Err(e) => {
                         log::warn!("[IndicTranscribe] Transcription failed: {e}");

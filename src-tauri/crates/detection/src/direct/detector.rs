@@ -2717,6 +2717,40 @@ mod tests {
         assert_eq!(c, vec!["9 1:3", "9 2:3", "9 2:5"]);
     }
 
+    /// Like the app: partials and finals through the detector and the
+    /// partial confirmer. Returns (event index, verse) for each shown.
+    fn ml_stream(events: &[(bool, &str)]) -> Vec<(usize, String)> {
+        let mut detector = DirectDetector::new();
+        let mut confirmer = crate::PartialConfirmer::new();
+        let mut shown = Vec::new();
+        for (i, (fin, text)) in events.iter().enumerate() {
+            let found = detector.detect_utterance(text, *fin);
+            for d in confirmer.filter_settled(found, *fin, detector.settled()) {
+                let v = &d.verse_ref;
+                shown.push((i, format!("{} {}:{}", v.book_number, v.chapter, v.verse_start)));
+            }
+        }
+        shown
+    }
+
+    /// Indic-Transcribe previews the words written so far: a reference at
+    /// the start of a long sentence shows from a preview as soon as the
+    /// next word is written, and a half-written one shows nothing early.
+    #[test]
+    fn malayalam_previews_show_reference_early() {
+        let shown = ml_stream(&[
+            (false, "പുറപ്പാട് ഇരുപതിൻ്റെ"),
+            (false, "പുറപ്പാട് ഇരുപതിൻ്റെ പന്ത്രണ്ട്"),
+            (false, "പുറപ്പാട് ഇരുപതിൻ്റെ പന്ത്രണ്ട് നമുക്ക്"),
+            (false, "പുറപ്പാട് ഇരുപതിൻ്റെ പന്ത്രണ്ട് നമുക്ക് ഒന്ന്"),
+            (false, "പുറപ്പാട് ഇരുപതിൻ്റെ പന്ത്രണ്ട് നമുക്ക് ഒന്ന് വായിക്കാം"),
+            (true, "പുറപ്പാട് ഇരുപതിൻ്റെ പന്ത്രണ്ട് നമുക്ക് ഒന്ന് വായിക്കാം ദൈവവചനം"),
+        ]);
+        // Repeats are dropped later by the app's DetectionMerger.
+        assert!(shown.iter().all(|(_, v)| v == "2 20:12"), "{shown:?}");
+        assert_eq!(shown.first().map(|s| s.0), Some(2), "{shown:?}");
+    }
+
     /// Live test 2026-11-08 15:27 with Indic-Transcribe, which writes
     /// "ൻ്റെ" for "ന്റെ" and splits references at pauses.
     #[test]
