@@ -268,9 +268,17 @@ fn book_table() -> &'static Vec<(String, &'static str)> {
     })
 }
 
+/// How the Indic-Transcribe engine often writes some names. Matched
+/// only exactly as written, never used for guessing.
+const HEARD_AS: &[(&str, &[&str])] = &[
+    ("micah", &["മിഹാ", "മിഹ", "മീഹാ"]),
+    ("romans", &["റോമ", "റോവർ", "റോബർ"]),
+    ("galatians", &["ദലാത്യർ", "ദെലാത്യർ", "ദലാതിർ", "ദെലാത്തിർ", "ദലാത്തിർ", "ഡെലാത്യർ"]),
+];
+
 fn match_book(word: &str) -> Option<&'static str> {
     // Short English names match only as written: "സാം" (Psalm).
-    for (en, forms) in ENGLISH_BOOKS {
+    for (en, forms) in ENGLISH_BOOKS.iter().chain(HEARD_AS) {
         if forms.iter().any(|f| norm(f) == word) {
             return Some(en);
         }
@@ -511,7 +519,7 @@ fn split_numbers(w: &str) -> Option<Vec<(String, Tok)>> {
         let rest: String = std::iter::once(iv).chain(chars[k + 1..].iter().copied()).collect();
         let (Some(&a), Some(b)) = (number_stems().get(head.as_str()), match_number(&rest)) else { continue };
         // "ഇരുപത്തൊന്ന്" is 21, already a single number; only plain pairs.
-        if a % 10 == 0 && a >= 20 {
+        if a % 10 == 0 && a >= 10 {
             continue;
         }
         let first = MlNum { value: a, ordinal: false, and: false };
