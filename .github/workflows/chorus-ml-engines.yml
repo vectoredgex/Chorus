@@ -73,9 +73,9 @@ jobs:
         # Whisper (medium-ml, large-v3-turbo) was dropped after taking over
         # 20 minutes for 42 short clips on CI CPUs; IndicConformer took 0.4 s
         # per line. Run them again with workflow_dispatch if ever needed.
-        # koyal and indicconformer-rnnt are gated: they need the HF_TOKEN
+        # koyal, indicconformer-rnnt and indic-transcribe are gated: they need the HF_TOKEN
         # repo secret.
-        engine: [indicconformer, koyal, indicconformer-rnnt]
+        engine: [indicconformer, koyal, indicconformer-rnnt, indic-transcribe]
         voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
@@ -114,7 +114,7 @@ jobs:
         run: |
           mkdir -p out
           E=${{ matrix.engine }}; V=${{ matrix.voice }}; T=$(nproc)
-          case "$E" in koyal|indicconformer-rnnt|indicconformer-ctc)
+          case "$E" in koyal|indicconformer-rnnt|indicconformer-ctc|indic-transcribe)
             if [ -z "$HF_TOKEN" ]; then echo "::warning::$E skipped: add the HF_TOKEN repo secret"; exit 0; fi ;;
           esac
           python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??.wav) > out/${E}_${V}_clear.tsv
