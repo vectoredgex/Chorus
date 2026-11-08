@@ -29,6 +29,10 @@ rhema-audio = { path = "../audio", optional = true }
 # Whisper crashed when both C++ engines were linked into one binary.
 sherpa-onnx = { version = "=2.0.1", optional = true, default-features = false, features = ["shared"] }
 
+# Bodhan AI Indic-Transcribe (Malayalam), through onnxruntime. The same
+# ort as the detection crate's embeddings, so the app carries one copy.
+ort = { version = "2.0.0-rc.12", optional = true }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"], optional = true }
 
@@ -41,6 +45,8 @@ rest-fallback = ["reqwest"]
 whisper = ["dep:whisper-rs", "rhema-audio"]
 # NVIDIA Parakeet (English, CPU). Shares Whisper's speech detection code.
 parakeet = ["whisper", "dep:sherpa-onnx"]
+# Bodhan AI Indic-Transcribe for Malayalam (CPU, int8).
+indic-transcribe = ["whisper", "dep:ort"]
 # Run Whisper on an NVIDIA graphics card (needs the CUDA Toolkit to build).
 cuda = ["whisper", "whisper-rs/cuda"]
 # Run Whisper on any Vulkan graphics card: NVIDIA, AMD or Intel
@@ -58,3 +64,7 @@ required-features = ["whisper"]
 [[example]]
 name = "parakeet_lines"
 required-features = ["parakeet"]
+
+[[example]]
+name = "indic_transcribe_lines"
+required-features = ["indic-transcribe"]

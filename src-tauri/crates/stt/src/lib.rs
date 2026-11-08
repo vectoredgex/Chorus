@@ -32,6 +32,9 @@ pub mod whisper;
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
 
+#[cfg(feature = "indic-transcribe")]
+pub mod indic_transcribe;
+
 pub use deepgram::DeepgramClient;
 pub use error::SttError;
 pub use keyterms::bible_keyterms;
@@ -43,3 +46,6 @@ pub use whisper::WhisperProvider;
 
 #[cfg(feature = "parakeet")]
 pub use parakeet::{ParakeetProvider, SherpaModel};
+
+#[cfg(feature = "indic-transcribe")]
+pub use indic_transcribe::IndicTranscribeProvider;

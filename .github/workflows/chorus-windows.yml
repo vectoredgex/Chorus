@@ -60,26 +60,38 @@ jobs:
           src-tauri/target/release/examples/parakeet_lines.exe $d 4 "$clip" | tee out.txt
           test -s out.txt
 
-      # Indic-Transcribe (Malayalam) needs onnxruntime. Can it share the
-      # onnxruntime.dll that sherpa-onnx ships, or does it need its own?
-      - name: onnxruntime version shipped with sherpa-onnx
-        id: ortver
-        shell: pwsh
-        run: |
-          $dll = Get-ChildItem -Recurse src-tauri/target/release -Filter onnxruntime.dll | Select-Object -First 1
-          $v = $dll.VersionInfo.ProductVersion
-          Write-Output "onnxruntime.dll: $($dll.FullName) version $v"
-          "version=$v" >> $env:GITHUB_OUTPUT
+      # Indic-Transcribe (Malayalam) uses its own onnxruntime (the ort crate,
+      # 1.28) next to the onnxruntime.dll sherpa-onnx ships (also 1.28).
+      # Build and run it here to prove both live together on Windows.
+      - name: Build Indic-Transcribe (Malayalam) example
+        working-directory: src-tauri
+        shell: bash
+        run: cargo build --release --locked -p rhema-stt --features parakeet,indic-transcribe --example indic_transcribe_lines
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Does Indic-Transcribe int8 run on that onnxruntime?
+      - name: Download Indic-Transcribe model
         shell: bash
-        continue-on-error: true
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          v="${{ steps.ortver.outputs.version }}"
-          pip install --quiet soundfile numpy huggingface_hub "onnxruntime==$(echo $v | cut -d. -f1-3)"
-          python -c "import onnxruntime; print('onnxruntime', onnxruntime.__version__)"
+          pip install --quiet huggingface_hub
+          python - <<'PY'
+          import os, shutil, tarfile
+          from huggingface_hub import hf_hub_download
+          tar = hf_hub_download("Mvkd2k06/indic-transcribe-core-onnx", "variants/int8/indic-transcribe-core-int8.tar")
+          with tarfile.open(tar) as t:
+              t.extractall("it-x", filter="data")
+          os.makedirs("it-model", exist_ok=True)
+          for d, _, files in os.walk("it-x"):
+              for f in files:
+                  shutil.move(os.path.join(d, f), os.path.join("it-model", f))
+          print(os.listdir("it-model"))
+          PY
+      - name: Run Indic-Transcribe on Windows
+        shell: bash
+        run: |
           d=models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
           clip=$(ls $d/test_wavs/*.wav | head -1)
-          python scripts/chorus/ml_transcribe.py indic-transcribe-int8 4 "$clip"
+          src-tauri/target/release/examples/indic_transcribe_lines.exe it-model 4 "$clip" | tee it.txt
+          test -s it.txt

@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { load, type Store } from "@tauri-apps/plugin-store"
 
-export type SttProvider = "deepgram" | "whisper" | "parakeet" | "malayalam"
+export type SttProvider = "deepgram" | "whisper" | "parakeet" | "malayalam" | "malayalam-it"
 
 interface SettingsState {
   deepgramApiKey: string | null

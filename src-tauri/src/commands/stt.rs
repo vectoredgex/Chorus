@@ -207,6 +207,46 @@ pub async fn start_transcription(
                 n_threads,
             ))
         }
+        #[cfg(feature = "indic-transcribe")]
+        "malayalam-it" => {
+            // Bodhan AI Indic-Transcribe (int8 ONNX), Malayalam.
+            // Dev: {CARGO_MANIFEST_DIR}/../models/malayalam/<model>/
+            // Prod: resource_dir()/models/malayalam/<model>/
+            use rhema_stt::indic_transcribe::{model_present, DIR_NAME};
+            let model_dir = {
+                let dev_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("models")
+                    .join("malayalam")
+                    .join(DIR_NAME);
+                if model_present(&dev_dir) {
+                    dev_dir
+                } else {
+                    app.path()
+                        .resource_dir()
+                        .map(|p| p.join("models").join("malayalam").join(DIR_NAME))
+                        .ok()
+                        .filter(|p| model_present(p))
+                        .ok_or_else(|| {
+                            "Indic-Transcribe model not found. Run: bun run download:malayalam-it".to_string()
+                        })?
+                }
+            };
+
+            // The decoder runs one word piece at a time; all cores help.
+            let n_threads = std::thread::available_parallelism().map_or(4, usize::from);
+
+            log::info!(
+                "Starting Malayalam (Indic-Transcribe) transcription: model={}, threads={n_threads}, device_id={device_id:?}",
+                model_dir.display()
+            );
+
+            Box::new(rhema_stt::IndicTranscribeProvider::new(model_dir, n_threads))
+        }
+        #[cfg(not(feature = "indic-transcribe"))]
+        "malayalam-it" => {
+            return Err("Indic-Transcribe support not compiled. Rebuild with --features indic-transcribe".into());
+        }
         #[cfg(not(feature = "parakeet"))]
         "parakeet" | "malayalam" => {
             return Err(

@@ -15,6 +15,8 @@ on:
     paths:
       - "scripts/chorus/ml_*.py"
       - "src-tauri/crates/chorus-refparse/**"
+      - "src-tauri/crates/stt/src/indic_transcribe.rs"
+      - "src-tauri/crates/stt/examples/indic_transcribe_lines.rs"
       - ".github/workflows/chorus-ml-engines.yml"
   workflow_dispatch:
 
@@ -74,8 +76,11 @@ jobs:
         # 20 minutes for 42 short clips on CI CPUs; IndicConformer took 0.4 s
         # per line. Run them again with workflow_dispatch if ever needed.
         # koyal, indicconformer-rnnt and indic-transcribe are gated: they need the HF_TOKEN
-        # repo secret.
-        engine: [indicconformer, indicconformer-rnnt, indic-transcribe, indic-transcribe-int8]
+        # repo secret. indicconformer-rnnt and the full indic-transcribe were
+        # measured in run 42482276437 and are left out to save time.
+        # indic-transcribe-rust is the app's own Rust code (the same model as
+        # indic-transcribe-int8, which is the Python reference for it).
+        engine: [indicconformer, indic-transcribe-int8, indic-transcribe-rust]
         voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
@@ -94,6 +99,7 @@ jobs:
                pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet transformers "onnxruntime<1.23" ;;
             indic-transcribe-int8) pip install --quiet "onnxruntime>=1.24" ;;
+            indic-transcribe-rust) ;;
             indicconformer*|omnilingual*) pip install --quiet sherpa-onnx ;;
             koyal) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet "nemo_toolkit[asr]" ;;
@@ -109,6 +115,32 @@ jobs:
             ~/.cache/huggingface/hub
             ~/.cache/omnilingual
           key: ml-engines-hf-${{ matrix.engine }}-v1
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.engine == 'indic-transcribe-rust'
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.engine == 'indic-transcribe-rust'
+        with:
+          workspaces: src-tauri
+          key: ml-it-rust
+      - name: Build the app's Indic-Transcribe code and fetch its model
+        if: matrix.engine == 'indic-transcribe-rust'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          (cd src-tauri && cargo build --release --locked -p rhema-stt --features indic-transcribe --example indic_transcribe_lines)
+          python3 - <<'PY'
+          import os, shutil, tarfile
+          from huggingface_hub import hf_hub_download
+          tar = hf_hub_download("Mvkd2k06/indic-transcribe-core-onnx", "variants/int8/indic-transcribe-core-int8.tar")
+          with tarfile.open(tar) as t:
+              print("\n".join(m.name for m in t.getmembers()))
+              t.extractall("it-x", filter="data")
+          os.makedirs("it-model", exist_ok=True)
+          for d, _, files in os.walk("it-x"):
+              for f in files:
+                  shutil.move(os.path.join(d, f), os.path.join("it-model", f))
+          print(os.listdir("it-model"))
+          PY
       - name: Transcribe
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -118,9 +150,16 @@ jobs:
           case "$E" in koyal|indicconformer-rnnt|indicconformer-ctc|indic-transcribe)
             if [ -z "$HF_TOKEN" ]; then echo "::warning::$E skipped: add the HF_TOKEN repo secret"; exit 0; fi ;;
           esac
-          python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??.wav) > out/${E}_${V}_clear.tsv
+          run() {
+            if [ "$E" = indic-transcribe-rust ]; then
+              src-tauri/target/release/examples/indic_transcribe_lines it-model $T "$@"
+            else
+              python3 scripts/chorus/ml_transcribe.py $E $T "$@"
+            fi
+          }
+          run $(ls clips/line??.wav) > out/${E}_${V}_clear.tsv
           for c in noisy hall fast; do
-            python3 scripts/chorus/ml_transcribe.py $E $T $(ls clips/line??_$c.wav) > out/${E}_${V}_$c.tsv
+            run $(ls clips/line??_$c.wav) > out/${E}_${V}_$c.tsv
           done
           cat out/*.tsv
       - uses: actions/upload-artifact@v4

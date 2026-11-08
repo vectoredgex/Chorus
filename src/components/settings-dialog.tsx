@@ -256,7 +256,7 @@ async function matchBibleToEngine(provider: SttProvider) {
       invoke<number>("get_active_translation"),
     ])
     const current = translations.find((t) => t.id === active)
-    const wantMalayalam = provider === "malayalam"
+    const wantMalayalam = provider === "malayalam" || provider === "malayalam-it"
     if ((current?.language === "ml") === wantMalayalam) return
     const target = wantMalayalam
       ? translations.find((t) => t.language === "ml")
@@ -358,6 +358,26 @@ function SpeechSection() {
                 Malayalam sermons, and shows verses from the Malayalam Bible
                 (Sathyavedapusthakam 1910). Fully offline. Set up once with:
                 bun run download:malayalam
+              </p>
+            </div>
+          </label>
+
+          {/* Malayalam (local, Indic-Transcribe) */}
+          <label
+            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-data-[state=checked]:border-primary/50 has-data-[state=checked]:bg-primary/5 has-data-[state=checked]:ring-1 has-data-[state=checked]:ring-primary/20 ${
+              sttProvider !== "malayalam-it" ? "hover:border-muted-foreground/25" : ""
+            }`}
+          >
+            <RadioGroupItem value="malayalam-it" className="mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-foreground">
+                Local (Malayalam, Indic-Transcribe) — മലയാളം, test
+              </span>
+              <p className="text-[0.625rem] leading-relaxed text-muted-foreground">
+                Runs Bodhan AI Indic-Transcribe locally on your processor.
+                Hears Malayalam much better in echoey or noisy rooms, but each
+                sentence takes about a second longer. Fully offline. Set up
+                once with: bun run download:malayalam-it
               </p>
             </div>
           </label>

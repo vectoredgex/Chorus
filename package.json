@@ -27,6 +27,7 @@
     "download:parakeet": "bun run data/download-parakeet-model.ts",
     "download:malayalam": "bun run data/download-malayalam-model.ts",
     "download:malayalam-bible": "bun run data/download-malayalam-bible.ts",
+    "download:malayalam-it": "bun run data/download-malayalam-it-model.ts",
     "download:ndi-sdk": "bun run data/download-ndi-sdk.ts",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "setup:all": "bun run data/prepare-embeddings.ts",
