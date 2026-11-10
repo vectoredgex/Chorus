@@ -1,0 +1,61 @@
+name: Chorus Malayalam quick engine upload
+
+# Packs AI4Bharat's official IndicConformer (MIT) for the app and uploads it
+# to a PRIVATE Hugging Face repo, <owner>/chorus-ml-fast, of the account
+# behind the HF_WRITE_TOKEN secret. `bun run download:malayalam-fast`
+# fetches it from there with the owner's token. Nothing is made public.
+# Runs when scripts/chorus/ic_official_release.txt changes (bump it to
+# rebuild).
+
+on:
+  push:
+    branches: [chorus/malayalam]
+    paths:
+      - scripts/chorus/ic_official_release.txt
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet "onnxruntime<1.23" onnx huggingface_hub numpy
+      - name: Pack
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 scripts/chorus/ic_official_pack.py indicconformer-official-ml plain
+          cat > indicconformer-official-ml/NOTICE.txt <<'TXT'
+          IndicConformer 600M multilingual by AI4Bharat (IIT Madras), released under the MIT License.
+          Source: https://huggingface.co/ai4bharat/indic-conformer-600m-multilingual
+          Repackaged for Chorus: Malayalam only, int8 encoder weights, mel preprocessor as ONNX
+          (scripts/chorus/ic_official_pack.py in https://github.com/vectoredgex/Chorus).
+          TXT
+          ls -l indicconformer-official-ml
+      - name: Upload to a private Hugging Face repo
+        env:
+          HF_TOKEN: ${{ secrets.HF_WRITE_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then echo "::error::add the HF_WRITE_TOKEN repo secret"; exit 1; fi
+          python3 - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          repo = f"{api.whoami()['name']}/chorus-ml-fast"
+          api.create_repo(repo, private=True, exist_ok=True)
+          api.update_repo_settings(repo, private=True)
+          api.upload_folder(repo_id=repo, folder_path="indicconformer-official-ml",
+                            commit_message="Malayalam quick engine for Chorus (official IndicConformer, int8)")
+          info = api.model_info(repo)
+          print("uploaded to", repo, "private:", info.private)
+          assert info.private, "repo is not private"
+          PY

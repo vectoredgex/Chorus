@@ -3,11 +3,12 @@
  * AI4Bharat's official IndicConformer (600M, RNNT), Malayalam only, with an
  * int8 encoder (~0.9 GB). Made by scripts/chorus/ic_official_pack.py from
  * https://huggingface.co/ai4bharat/indic-conformer-600m-multilingual
- * (MIT licence) and published as a Chorus release file.
+ * (MIT licence) and kept in a PRIVATE Hugging Face repo, <you>/chorus-ml-fast,
+ * so it needs your Hugging Face token:
+ *
+ *   PowerShell:  $env:HF_TOKEN="hf_..."; bun run download:malayalam-fast
  *
  * Model folder: models/malayalam/indicconformer-official-ml/
- *
- * Run: bun run download:malayalam-fast
  */
 
 import { join } from "node:path"
@@ -18,14 +19,11 @@ import {
   renameSync,
   statSync,
   readdirSync,
-  rmSync,
 } from "node:fs"
-import { spawnSync } from "node:child_process"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
 const MODEL_DIR = join(PROJECT_ROOT, "models", "malayalam", "indicconformer-official-ml")
-const TAR_URL =
-  "https://github.com/vectoredgex/Chorus/releases/download/models-ml-fast-v1/indicconformer-official-ml.tar"
+const REPO_NAME = "chorus-ml-fast"
 
 // Downloads with resume: a dropped connection (common on home Wi-Fi for a
 // ~480 MB file) picks up where it stopped instead of starting again.
@@ -53,6 +51,7 @@ async function download(url: string, dest: string) {
 // Returns true once the whole file is on disk.
 async function downloadFrom(url: string, tmp: string, have: number): Promise<boolean> {
   const headers: Record<string, string> = have > 0 ? { Range: `bytes=${have}-` } : {}
+  headers.Authorization = `Bearer ${process.env.HF_TOKEN}`
   const response = await fetch(url, { redirect: "follow", headers })
   if (response.status === 416) return true // already complete
   if (!response.ok) {
@@ -108,39 +107,34 @@ function modelReady(): boolean {
   return FILES.every((f) => names.includes(f))
 }
 
-// Move every file found under `dir` (any depth) into MODEL_DIR.
-function flattenInto(dir: string) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) flattenInto(path)
-    else renameSync(path, join(MODEL_DIR, entry.name))
-  }
-}
-
 async function main() {
   if (modelReady()) {
     console.log(`Already set up: ${MODEL_DIR}`)
-  } else {
-    mkdirSync(MODEL_DIR, { recursive: true })
-    const tar = join(MODEL_DIR, "..", "indicconformer-official-ml.tar")
-    if (!existsSync(tar)) {
-      console.log("Downloading the official IndicConformer (about 0.9 GB)...")
-      await download(TAR_URL, tar)
-    }
-    console.log("Unpacking...")
-    const unpack = join(MODEL_DIR, "..", "indicconformer-official-unpack")
-    rmSync(unpack, { recursive: true, force: true })
-    mkdirSync(unpack, { recursive: true })
-    const res = spawnSync("tar", ["-xf", tar, "-C", unpack], { stdio: "inherit" })
-    if (res.status !== 0) throw new Error("Could not unpack the model (is `tar` available?)")
-    flattenInto(unpack)
-    rmSync(unpack, { recursive: true, force: true })
-    if (!modelReady()) throw new Error(`Unpacked, but the model files are missing in ${MODEL_DIR}`)
-    rmSync(tar, { force: true })
-    console.log(`Official IndicConformer ready: ${MODEL_DIR}`)
+    return
   }
-
-  console.log("\nDone. In Chorus: Settings, choose Local (Malayalam, fast + accurate).")
+  const token = process.env.HF_TOKEN
+  if (!token) {
+    throw new Error(
+      'This needs your Hugging Face token. In PowerShell: $env:HF_TOKEN="hf_..."; bun run download:malayalam-fast',
+    )
+  }
+  const who = await fetch("https://huggingface.co/api/whoami-v2", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!who.ok) throw new Error(`Hugging Face did not accept the token (${who.status})`)
+  const user = ((await who.json()) as { name: string }).name
+  const base = `https://huggingface.co/${user}/${REPO_NAME}/resolve/main`
+  mkdirSync(MODEL_DIR, { recursive: true })
+  console.log(`Downloading the official IndicConformer from ${user}/${REPO_NAME} (about 0.9 GB)...`)
+  for (const f of [...FILES, "NOTICE.txt"]) {
+    const dest = join(MODEL_DIR, f)
+    if (existsSync(dest)) continue
+    console.log(`  ${f}`)
+    await download(`${base}/${f}`, dest)
+  }
+  if (!modelReady()) throw new Error(`Downloaded, but the model files are missing in ${MODEL_DIR}`)
+  console.log(`\nDone: ${MODEL_DIR}`)
+  console.log("In Chorus: Settings, choose Local (Malayalam, fast + accurate). It uses this engine for quick guesses.")
 }
 
 main().catch((e) => {
