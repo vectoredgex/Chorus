@@ -166,7 +166,7 @@ jobs:
         run: |
           python3 scripts/chorus/ic_official_pack.py ic-pack "${{ matrix.engine }}"
           pip install --quiet transformers soundfile
-          python3 scripts/chorus/ic_official_pack.py --check ic-pack clips/line10.wav clips/line11.wav clips/line03.wav 2>&1 | grep -E 'encoder diff|original|pack|Error|Trace'
+          python3 scripts/chorus/ic_official_pack.py --check ic-pack clips/line10.wav clips/line11.wav clips/line03.wav 2>&1 | grep -E 'encoder diff|original|pack|variant|config|my |Error|Trace'
       - name: Transcribe
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

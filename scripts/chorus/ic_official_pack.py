@@ -159,6 +159,38 @@ if __name__ == "__main__" and sys.argv[1] != "--check":
     main()
 
 
+def variant_decode(folder, out, threads, cache):
+    import json
+    opts = ort.SessionOptions()
+    if threads:
+        opts.intra_op_num_threads = threads
+    S = lambda n: ort.InferenceSession(os.path.join(folder, n + ".onnx"), opts, providers=["CPUExecutionProvider"])
+    dec, jenc, jpred, jpre, jpost = S("rnnt_decoder"), S("joint_enc"), S("joint_pred"), S("joint_pre_net"), S("joint_post_net_ml")
+    tok = json.load(open(os.path.join(folder, "tokens.json"), encoding="utf-8"))
+    f_all = jenc.run(None, {"input": out.transpose(0, 2, 1)})[0]
+    hyp = [tok["sos"]]
+    h = np.zeros((tok["pred_layers"], 1, tok["pred_hidden"]), dtype=np.float32)
+    c = np.zeros_like(h)
+    g = None
+    for t in range(f_all.shape[1]):
+        f = f_all[:, t:t + 1, :]
+        for _ in range(tok["max_symbols"]):
+            if g is None or not cache:
+                r = dec.run(["outputs", "prednet_lengths", "states", "162"],
+                            {"targets": np.array([[hyp[-1]]], dtype=np.int32),
+                             "target_length": np.array([1], dtype=np.int32),
+                             "states.1": h, "onnx::Slice_3": c})
+                g = jpred.run(["output"], {"input": r[0].transpose(0, 2, 1)})[0]
+                nh, nc = r[2], r[3]
+            x = jpre.run(["output"], {"input": f + g})[0]
+            k = int(np.argmax(jpost.run(["output"], {"input": x})[0].reshape(-1)))
+            if k == tok["blank"]:
+                break
+            hyp.append(k)
+            h, c, g = nh, nc, None
+    return "".join(tok["pieces"][k] for k in hyp[1:]).replace("\u2581", " ").strip(), hyp[1:12]
+
+
 def check(folder, clips):
     """Compare the pack with AI4Bharat's own pipeline, step by step."""
     import soundfile as sf
@@ -179,6 +211,8 @@ def check(folder, clips):
         eb, _ = model.models["encoder"].run(None, {"audio_signal": b, "length": np.asarray(bl).astype(np.int64)})
         print("  encoder diff", f"{np.abs(ea - eb).max():.2e}", "mean abs", f"{np.abs(ea).mean():.2e}")
         print("  original:", model(x, "ml", "rnnt"))
+        print("  config:", {k: getattr(model.config, k, None) for k in ("BLANK_ID", "SOS", "RNNT_MAX_SYMBOLS", "PRED_RNN_LAYERS", "PRED_RNN_HIDDEN_DIM")},
+              "tokens.json:", {k: v for k, v in json.load(open(os.path.join(folder, "tokens.json"), encoding="utf-8")).items() if k != "pieces"})
         print("  original decoder, original features:", model._rnnt_decode(ea, None, "ml"))
         print("  original decoder, pack features:    ", model._rnnt_decode(eb, None, "ml"))
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -189,6 +223,9 @@ def check(folder, clips):
         em = mine.encode(wav)
         print("  my encoder session vs original session diff", f"{np.abs(em - eb).max():.2e}")
         print("  original decoder, my encoder session:", model._rnnt_decode(em, None, "ml"))
+        for threads in (0, 1, 4):
+            for cache in (True, False):
+                print(f"  variant threads={threads} cache={cache}:", variant_decode(folder, eb, threads, cache))
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--check":
