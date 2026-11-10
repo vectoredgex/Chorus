@@ -117,6 +117,17 @@ def main():
     # Encoder: int8.
     src = os.path.join(real, "encoder.onnx")
     exclude = []
+    if mode in ("pe", "pe0"):
+        # The subsampling output projection (and layer 0) at full precision:
+        # the int8 encoder proved sensitive to tiny feature differences there.
+        g = onnx.load(src, load_external_data=False).graph
+        mm = [n for n in g.node if n.op_type in ("MatMul", "Gemm")]
+        exclude = [n.name for n in mm if "pre_encode" in " ".join([n.name, *n.input])]
+        if mode == "pe0":
+            exclude += [n.name for n in mm if re.search(r"layers\.0[./]", " ".join([n.name, *n.input]))]
+        print(f"full precision: {len(exclude)} MatMuls: {exclude[:6]}")
+        if not exclude:
+            print("first MatMuls:", [(n.name, list(n.input)) for n in mm[:5]])
     if mode in ("pcx", "px", "px6"):
         g = onnx.load(src, load_external_data=False).graph
 
