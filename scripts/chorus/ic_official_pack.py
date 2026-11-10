@@ -55,13 +55,44 @@ def main():
         attrs = {k: v for k, v in vars(sub).items() if not k.startswith("_")} if hasattr(sub, "__dict__") else {}
         print("module", name, type(sub).__name__, str(attrs)[:300])
 
+    # NeMo's mel features rebuilt from plain ops (framing as a strided
+    # conv with DFT kernels, no STFT op), so the export is ONNX-friendly.
+    consts = pre.code_with_constants[1].const_mapping
+    print("constants", {k: (tuple(v.shape) if hasattr(v, "shape") and v.dim() else v) for k, v in consts.items()})
+    hop, one, preemph = float(consts["c0"]), consts["c1"], float(consts["c2"])
+    window, fb = consts["c3"].float(), consts["c4"].float()
+    guard, eps = float(consts["c5"]), float(consts["c6"])
+    n_fft = 512
+    assert int(hop) == 160 and window.numel() <= n_fft and fb.shape[0] == n_fft // 2 + 1, (hop, window.shape, fb.shape)
+
     class Pre(torch.nn.Module):
-        def __init__(self, m):
+        def __init__(self):
             super().__init__()
-            self.m = m
+            w = torch.zeros(n_fft)
+            left = (n_fft - window.numel()) // 2
+            w[left:left + window.numel()] = window
+            k = torch.arange(n_fft // 2 + 1, dtype=torch.float64)[:, None]
+            n = torch.arange(n_fft, dtype=torch.float64)[None, :]
+            ang = 2 * np.pi * k * n / n_fft
+            self.register_buffer("cos", (torch.cos(ang) * w).float()[:, None, :])
+            self.register_buffer("sin", (-torch.sin(ang) * w).float()[:, None, :])
+            self.register_buffer("fb", fb)
 
         def forward(self, audio, length):
-            return self.m(input_signal=audio, length=length)
+            lengths = torch.div(length, int(hop), rounding_mode="floor") + 1
+            prev = torch.nn.functional.pad(audio, (1, 0))[:, :-1]
+            x = audio - preemph * prev
+            x = torch.nn.functional.pad(x[:, None, :], (n_fft // 2, n_fft // 2), mode="reflect")
+            re = torch.nn.functional.conv1d(x, self.cos, stride=int(hop))
+            im = torch.nn.functional.conv1d(x, self.sin, stride=int(hop))
+            power = re * re + im * im                       # (1, 257, T)
+            mel = torch.matmul(power.transpose(1, 2), self.fb).transpose(1, 2)
+            feats = torch.log(mel + guard)                  # (1, 80, T)
+            t = feats.shape[2]
+            mean = feats.mean(dim=2, keepdim=True)
+            d = feats - mean
+            var = torch.clamp((d * d).sum(dim=2, keepdim=True) / (t - 1), min=5.9604644775390625e-08)
+            return d / (torch.sqrt(var) + eps), lengths
 
     rng = np.random.default_rng(0)
     wav = torch.from_numpy((rng.standard_normal(16000 * 3) * 0.05).astype(np.float32)).unsqueeze(0)
@@ -69,7 +100,10 @@ def main():
     ref, ref_len = pre(input_signal=wav, length=ln)
     print("features", tuple(ref.shape), ref.dtype, "len", ref_len)
     pre_path = os.path.join(out, "preprocessor.onnx")
-    torch.onnx.export(Pre(pre), (wav, ln), pre_path, input_names=["audio", "length"],
+    with torch.no_grad():
+        mine, _ = Pre()(wav, ln)
+    print(f"rebuilt preprocessor vs original: max diff {(mine - ref).abs().max().item():.2e}")
+    torch.onnx.export(Pre(), (wav, ln), pre_path, input_names=["audio", "length"],
                       output_names=["features", "feat_len"], opset_version=17,
                       dynamic_axes={"audio": {1: "samples"}, "features": {2: "frames"}},
                       dynamo=False)
