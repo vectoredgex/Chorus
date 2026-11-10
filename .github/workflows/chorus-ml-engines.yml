@@ -81,8 +81,9 @@ jobs:
         # indic-transcribe-rust is the app's own Rust code (the same model as
         # indic-transcribe-int8, which is the Python reference for it).
         # -b1/-b2: book-name bias (start,cont bonus) on.
-        engine: [indicconformer-rnnt]
-        voice: [natural]
+        # The official IndicConformer has 2.56 GB of files (run 42831054741).
+        engine: [indicconformer-rnnt, indicconformer-rnnt-int8]
+        voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -96,7 +97,7 @@ jobs:
         run: |
           pip install --quiet soundfile numpy huggingface_hub
           case "${{ matrix.engine }}" in
-            indicconformer-rnnt|indicconformer-ctc)
+            indicconformer-rnnt*|indicconformer-ctc)
                pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet transformers "onnxruntime<1.23" ;;
             indic-transcribe-int8) pip install --quiet "onnxruntime>=1.24" ;;
@@ -143,33 +144,13 @@ jobs:
                   shutil.move(os.path.join(d, f), os.path.join("it-model", f))
           print(os.listdir("it-model"))
           PY
-      - name: Inspect the official IndicConformer
-        if: startsWith(matrix.engine, 'indicconformer-rnnt')
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from huggingface_hub import HfApi, hf_hub_download
-          repo = "ai4bharat/indic-conformer-600m-multilingual"
-          info = HfApi().model_info(repo, files_metadata=True, token=os.environ["HF_TOKEN"])
-          total = 0
-          for f in info.siblings:
-              total += f.size or 0
-              print(f"{(f.size or 0)/1e6:10.1f} MB  {f.rfilename}")
-          print(f"TOTAL {total/1e9:.2f} GB")
-          for f in info.siblings:
-              if f.rfilename.endswith((".py", ".json")) and (f.size or 0) < 200000:
-                  p = hf_hub_download(repo, f.rfilename, token=os.environ["HF_TOKEN"])
-                  print(f"===== {f.rfilename}"); print(open(p, encoding="utf-8", errors="replace").read()[:20000])
-          PY
       - name: Transcribe
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           mkdir -p out
           E=${{ matrix.engine }}; V=${{ matrix.voice }}; T=$(nproc)
-          case "$E" in koyal|indicconformer-rnnt|indicconformer-ctc|indic-transcribe)
+          case "$E" in koyal|indicconformer-rnnt*|indicconformer-ctc|indic-transcribe)
             if [ -z "$HF_TOKEN" ]; then echo "::warning::$E skipped: add the HF_TOKEN repo secret"; exit 0; fi ;;
           esac
           run() {

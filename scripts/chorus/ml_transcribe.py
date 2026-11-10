@@ -157,7 +157,7 @@ def koyal(threads):
     return run
 
 
-def indicconformer_official(decoder, threads):
+def indicconformer_official(decoder, threads, int8=False):
     """AI4Bharat's own IndicConformer 600M (gated on Hugging Face), with
     its CTC or RNNT decoder."""
     import os
@@ -167,6 +167,24 @@ def indicconformer_official(decoder, threads):
     torch.set_num_threads(threads)
     model = AutoModel.from_pretrained("ai4bharat/indic-conformer-600m-multilingual",
                                       trust_remote_code=True, token=os.environ.get("HF_TOKEN"))
+
+    if int8:
+        # Shrink the 2.4 GB encoder to int8 weights (MatMul/Gemm only), the
+        # way the app would ship it.
+        import onnxruntime as ort
+        from huggingface_hub import snapshot_download
+        from onnxruntime.quantization import QuantType, quantize_dynamic
+        src = os.path.join(snapshot_download("ai4bharat/indic-conformer-600m-multilingual",
+                                             token=os.environ.get("HF_TOKEN")), "assets", "encoder.onnx")
+        dst = os.path.expanduser("~/.cache/omnilingual/ic-encoder-int8.onnx")
+        if not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            quantize_dynamic(src, dst, weight_type=QuantType.QInt8,
+                             op_types_to_quantize=["MatMul", "Gemm"])
+        print(f"int8 encoder: {os.path.getsize(dst)/1e6:.0f} MB", file=sys.stderr)
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = threads
+        model.models["encoder"] = ort.InferenceSession(dst, opts, providers=["CPUExecutionProvider"])
 
     def run(wav):
         x = torch.from_numpy(np.asarray(wav, dtype=np.float32)).unsqueeze(0)
@@ -249,6 +267,8 @@ def main():
         run = omnilingual("1B", threads)
     elif engine == "indicconformer-rnnt":
         run = indicconformer_official("rnnt", threads)
+    elif engine == "indicconformer-rnnt-int8":
+        run = indicconformer_official("rnnt", threads, int8=True)
     elif engine == "indicconformer-ctc":
         run = indicconformer_official("ctc", threads)
     elif engine == "indic-transcribe-int8":
