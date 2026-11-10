@@ -33,6 +33,8 @@ pub mod whisper;
 pub mod parakeet;
 
 #[cfg(feature = "indic-transcribe")]
+pub mod ic_official;
+#[cfg(feature = "indic-transcribe")]
 pub mod indic_transcribe;
 
 #[cfg(all(feature = "indic-transcribe", feature = "parakeet"))]

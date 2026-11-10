@@ -70,3 +70,7 @@ required-features = ["parakeet"]
 [[example]]
 name = "indic_transcribe_lines"
 required-features = ["indic-transcribe"]
+
+[[example]]
+name = "ic_official_lines"
+required-features = ["indic-transcribe"]

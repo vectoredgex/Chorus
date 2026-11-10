@@ -1,7 +1,8 @@
 //! Malayalam with two engines: fast and accurate.
 //!
 //! While someone speaks, `IndicConformer` (about 0.3 s per look) writes live
-//! previews, so a reference can reach the screen before the pause. At the
+//! previews (AI4Bharat's official model when its folder is installed, else
+//! the sherpa-onnx conversion), so a reference can reach the screen before the pause. At the
 //! pause, Indic-Transcribe (slower, far more accurate) writes the final
 //! text, and its reading of the reference is the one that counts: the
 //! detector re-reads the utterance from the final.
@@ -18,10 +19,29 @@ use tokio::sync::mpsc;
 
 use crate::error::SttError;
 use crate::indic_transcribe::{keep_loaded, take_or_load, words_of};
+use crate::ic_official::IcOfficial;
 use crate::parakeet::{load_recognizer_for, model_present_for, transcribe, SherpaModel, MALAYALAM_PARTIALS};
 use crate::provider::SttProvider;
 use crate::types::TranscriptEvent;
 use crate::whisper::{i16_to_f32, level_volume, next_job, run_segmenter, Job};
+
+/// The quick engine.
+enum Fast {
+    Official(IcOfficial),
+    Sherpa(sherpa_onnx::OfflineRecognizer),
+}
+
+impl Fast {
+    fn transcribe(&mut self, audio: &[f32]) -> String {
+        match self {
+            Self::Official(m) => m.transcribe(audio).unwrap_or_else(|e| {
+                log::warn!("[ML-Combo] fast engine failed: {e}");
+                String::new()
+            }),
+            Self::Sherpa(r) => transcribe(r, audio),
+        }
+    }
+}
 
 /// Live Malayalam transcription: `IndicConformer` previews, Indic-Transcribe finals.
 pub struct MalayalamComboProvider {
@@ -60,7 +80,8 @@ impl SttProvider for MalayalamComboProvider {
         audio_rx: Receiver<Vec<i16>>,
         event_tx: mpsc::Sender<TranscriptEvent>,
     ) -> Result<(), SttError> {
-        if !model_present_for(SherpaModel::IndicConformerMalayalam, &self.fast_dir) {
+        let official = crate::ic_official::model_present(&self.fast_dir);
+        if !official && !model_present_for(SherpaModel::IndicConformerMalayalam, &self.fast_dir) {
             return Err(SttError::ModelNotFound(format!(
                 "Malayalam model not found in {} (run: bun run download:malayalam)",
                 self.fast_dir.display()
@@ -91,18 +112,26 @@ impl SttProvider for MalayalamComboProvider {
             // Both load at once.
             let (fast, accurate) = std::thread::scope(|s| {
                 let acc = s.spawn(|| take_or_load(&accurate_dir, accurate_threads));
-                let fast = load_recognizer_for(SherpaModel::IndicConformerMalayalam, &fast_dir, fast_threads);
+                let fast = if official {
+                    crate::ic_official::take_or_load(&fast_dir, usize::try_from(fast_threads).unwrap_or(1))
+                        .map_err(|e| log::error!("[ML-Combo] {e}"))
+                        .ok()
+                        .map(Fast::Official)
+                } else {
+                    load_recognizer_for(SherpaModel::IndicConformerMalayalam, &fast_dir, fast_threads).map(Fast::Sherpa)
+                };
                 (fast, acc.join().unwrap_or_else(|_| Err("loading panicked".into())))
             });
-            let (Some(fast), Ok(mut accurate)) = (fast, accurate) else {
+            let (Some(mut fast), Ok(mut accurate)) = (fast, accurate) else {
                 log::error!("[ML-Combo] Failed to load the Malayalam models");
                 let _ = inf_event_tx
                     .blocking_send(TranscriptEvent::Error("Failed to load the Malayalam speech models".into()));
                 return;
             };
             log::info!(
-                "[ML-Combo] Models loaded in {:.1?} (fast threads={fast_threads}, accurate threads={accurate_threads})",
-                load_start.elapsed()
+                "[ML-Combo] Models loaded in {:.1?} (fast={}, threads={fast_threads}; accurate threads={accurate_threads})",
+                load_start.elapsed(),
+                if official { "official IndicConformer" } else { "IndicConformer" }
             );
 
             let mut pending_job: Option<Job> = None;
@@ -117,7 +146,7 @@ impl SttProvider for MalayalamComboProvider {
                 let start = std::time::Instant::now();
 
                 if is_partial {
-                    let text = transcribe(&fast, &audio);
+                    let text = fast.transcribe(&audio);
                     log::info!(
                         "[ML-Combo] fast {duration_s:.1}s audio in {:.1?}: \"{text}\"",
                         start.elapsed()
@@ -144,7 +173,7 @@ impl SttProvider for MalayalamComboProvider {
                     Err(e) => {
                         // The fast engine stands in rather than losing the phrase.
                         log::warn!("[ML-Combo] accurate engine failed ({e}); using the fast one");
-                        transcribe(&fast, &audio)
+                        fast.transcribe(&audio)
                     }
                 };
                 log::info!(
@@ -164,6 +193,9 @@ impl SttProvider for MalayalamComboProvider {
             }
             log::info!("[ML-Combo] Inference task exiting");
             keep_loaded(accurate_dir, accurate_threads, accurate);
+            if let Fast::Official(m) = fast {
+                crate::ic_official::keep_loaded(fast_dir, usize::try_from(fast_threads).unwrap_or(1), m);
+            }
         });
 
         let _ = tokio::join!(vad_handle, inf_handle);

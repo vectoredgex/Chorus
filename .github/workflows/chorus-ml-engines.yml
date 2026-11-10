@@ -83,7 +83,8 @@ jobs:
         # -b1/-b2: book-name bias (start,cont bonus) on.
         # The official IndicConformer has 2.56 GB of files (run 42831054741).
         # indicconformer-rnnt-int8 (plain): 274/384, 14 wrong, 0.35 s, 880 MB (run 42837490852).
-        engine: [indicconformer-rnnt-int8-pc, indicconformer-rnnt-int8-pcx]
+        # Per-channel int8 broke it: pc 101/384, pcx 80/384 (run 42843422393).
+        engine: [indicconformer-rnnt-int8-px, indicconformer-rnnt-int8-px6, ic-official-rust-plain]
         voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
@@ -98,11 +99,13 @@ jobs:
         run: |
           pip install --quiet soundfile numpy huggingface_hub
           case "${{ matrix.engine }}" in
-            indicconformer-rnnt*|indicconformer-ctc)
+            indicconformer-rnnt*|indicconformer-ctc|ic-official-pack*)
                pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet transformers "onnxruntime<1.23" onnx ;;
             indic-transcribe-int8) pip install --quiet "onnxruntime>=1.24" ;;
             indic-transcribe-rust*) ;;
+            ic-official-rust*) pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+               pip install --quiet "onnxruntime<1.23" onnx ;;
             indicconformer*|omnilingual*) pip install --quiet sherpa-onnx ;;
             koyal) pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
                pip install --quiet "nemo_toolkit[asr]" ;;
@@ -117,11 +120,11 @@ jobs:
           path: |
             ~/.cache/huggingface/hub
             ~/.cache/omnilingual
-          key: ml-engines-hf-${{ matrix.engine }}-v1
+          key: ml-engines-hf-${{ startsWith(matrix.engine, 'ic-official-') && 'ic-official' || matrix.engine }}-v1
       - uses: dtolnay/rust-toolchain@stable
-        if: startsWith(matrix.engine, 'indic-transcribe-rust')
+        if: startsWith(matrix.engine, 'indic-transcribe-rust') || startsWith(matrix.engine, 'ic-official-rust')
       - uses: Swatinem/rust-cache@v2
-        if: startsWith(matrix.engine, 'indic-transcribe-rust')
+        if: startsWith(matrix.engine, 'indic-transcribe-rust') || startsWith(matrix.engine, 'ic-official-rust')
         with:
           workspaces: src-tauri
           key: ml-it-rust
@@ -145,17 +148,29 @@ jobs:
                   shutil.move(os.path.join(d, f), os.path.join("it-model", f))
           print(os.listdir("it-model"))
           PY
+      - name: Build the app's official IndicConformer code
+        if: startsWith(matrix.engine, 'ic-official-rust')
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 libasound2-dev
+          (cd src-tauri && cargo build --release --locked -p rhema-stt --features indic-transcribe --example ic_official_lines)
+      - name: Pack the official IndicConformer for the app
+        if: startsWith(matrix.engine, 'ic-official-')
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python3 scripts/chorus/ic_official_pack.py ic-pack "${{ matrix.engine }}" | sed 's/^/  /'
       - name: Transcribe
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           mkdir -p out
           E=${{ matrix.engine }}; V=${{ matrix.voice }}; T=$(nproc)
-          case "$E" in koyal|indicconformer-rnnt*|indicconformer-ctc|indic-transcribe)
+          case "$E" in koyal|indicconformer-rnnt*|indicconformer-ctc|indic-transcribe|ic-official-*)
             if [ -z "$HF_TOKEN" ]; then echo "::warning::$E skipped: add the HF_TOKEN repo secret"; exit 0; fi ;;
           esac
           run() {
-            if [[ "$E" == indic-transcribe-rust* ]]; then
+            if [[ "$E" == ic-official-rust* ]]; then
+              src-tauri/target/release/examples/ic_official_lines ic-pack $T "$@"
+            elif [[ "$E" == indic-transcribe-rust* ]]; then
               case "$E" in *-b1) export CHORUS_IT_BIAS="1,2" ;; *-b2) export CHORUS_IT_BIAS="2,4" ;; *) export CHORUS_IT_BIAS="0,0" ;; esac
               src-tauri/target/release/examples/indic_transcribe_lines it-model $T "$@"
             else

@@ -189,7 +189,7 @@ def indicconformer_official(decoder, threads, int8=""):
             shutil.copytree(os.path.dirname(src), real, symlinks=False)
             src = os.path.join(real, "encoder.onnx")
             exclude = []
-            if int8 == "pcx":
+            if int8 in ("pcx", "px", "px6"):
                 import re
                 import onnx
                 g = onnx.load(src, load_external_data=False).graph
@@ -197,7 +197,7 @@ def indicconformer_official(decoder, threads, int8=""):
                     m = re.search(r"layers\.(\d+)[./]", " ".join([n.name, *n.input]))
                     return int(m.group(1)) if m else None
                 last = max((layer(n) for n in g.node if layer(n) is not None), default=0)
-                keep = {0, 1, last - 1, last}
+                keep = {0, 1, 2, last - 2, last - 1, last} if int8 == "px6" else {0, 1, last - 1, last}
                 exclude = [n.name for n in g.node
                            if n.op_type in ("MatMul", "Gemm") and layer(n) in keep]
                 print(f"layers 0..{last}; keeping {len(exclude)} MatMuls full precision", file=sys.stderr)
@@ -216,6 +216,50 @@ def indicconformer_official(decoder, threads, int8=""):
         if isinstance(out, (list, tuple)):
             out = out[0]
         return str(out)
+    return run
+
+
+def ic_official_pack(folder, threads):
+    """The packed official IndicConformer (ic_official_pack.py) with plain
+    onnxruntime: the reference for the app's Rust code."""
+    import json
+    import os
+    import onnxruntime as ort
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = threads
+    S = lambda n: ort.InferenceSession(os.path.join(folder, n + ".onnx"), opts,
+                                       providers=["CPUExecutionProvider"])
+    pre, enc, dec = S("preprocessor"), S("encoder"), S("rnnt_decoder")
+    jenc, jpred, jpre, jpost = S("joint_enc"), S("joint_pred"), S("joint_pre_net"), S("joint_post_net_ml")
+    tok = json.load(open(os.path.join(folder, "tokens.json"), encoding="utf-8"))
+
+    def run(wav):
+        w = np.asarray(wav, dtype=np.float32)[None]
+        feats, flen = pre.run(None, {"audio": w, "length": np.array([w.shape[1]], dtype=np.int64)})
+        out, _ = enc.run(None, {"audio_signal": feats, "length": np.asarray(flen).astype(np.int64).reshape(1)})
+        f_all = jenc.run(None, {"input": out.transpose(0, 2, 1)})[0]
+        hyp = [tok["sos"]]
+        h = np.zeros((tok["pred_layers"], 1, tok["pred_hidden"]), dtype=np.float32)
+        c = np.zeros_like(h)
+        g = None
+        for t in range(f_all.shape[1]):
+            f = f_all[:, t:t + 1, :]
+            for _ in range(tok["max_symbols"]):
+                if g is None:
+                    r = dec.run(["outputs", "states", "162"],
+                                {"targets": np.array([[hyp[-1]]], dtype=np.int32),
+                                 "target_length": np.array([1], dtype=np.int32),
+                                 "states.1": h, "onnx::Slice_3": c})
+                    g = jpred.run(None, {"input": r[0].transpose(0, 2, 1)})[0]
+                    nh, nc = r[1], r[2]
+                x = jpre.run(None, {"input": f + g})[0]
+                logits = jpost.run(None, {"input": x})[0]
+                k = int(np.argmax(logits.reshape(-1)))
+                if k == tok["blank"]:
+                    break
+                hyp.append(k)
+                h, c, g = nh, nc, None
+        return "".join(tok["pieces"][k] for k in hyp[1:]).replace("\u2581", " ").strip()
     return run
 
 
@@ -291,6 +335,8 @@ def main():
         run = omnilingual("1B", threads)
     elif engine == "indicconformer-rnnt":
         run = indicconformer_official("rnnt", threads)
+    elif engine.startswith("ic-official-pack"):
+        run = ic_official_pack("ic-pack", threads)
     elif engine.startswith("indicconformer-rnnt-int8"):
         run = indicconformer_official("rnnt", threads, int8=engine.split("int8")[1].strip("-") or "plain")
     elif engine == "indicconformer-ctc":

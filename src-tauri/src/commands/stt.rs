@@ -272,11 +272,20 @@ pub async fn start_transcription(
                     .filter(|p| present(p))
                     .ok_or_else(|| format!("Malayalam model not found. Run: bun run {download}"))
             };
+            // AI4Bharat's official IndicConformer when installed (more
+            // accurate and faster), else the sherpa-onnx conversion.
             let fast_dir = find(
-                MALAYALAM_DIR_NAME,
-                &|p| model_present_for(SherpaModel::IndicConformerMalayalam, p),
-                "download:malayalam",
-            )?;
+                rhema_stt::ic_official::DIR_NAME,
+                &|p| rhema_stt::ic_official::model_present(p),
+                "download:malayalam-fast",
+            )
+            .or_else(|_| {
+                find(
+                    MALAYALAM_DIR_NAME,
+                    &|p| model_present_for(SherpaModel::IndicConformerMalayalam, p),
+                    "download:malayalam",
+                )
+            })?;
             let accurate_dir = find(
                 rhema_stt::indic_transcribe::DIR_NAME,
                 &|p| rhema_stt::indic_transcribe::model_present(p),

@@ -482,6 +482,8 @@ const PREVIOUS_VERSE_PHRASES: &[&str] = &[
 pub struct DirectDetector {
     matcher: BookMatcher,
     context: ReferenceContext,
+    /// Set while reading a Malayalam preview: no book from context.
+    no_context_book: bool,
     /// Pending incomplete reference waiting for verse completion.
     incomplete: Option<IncompleteRef>,
     /// Recently detected verses for "previous verse" navigation (most recent first).
@@ -520,6 +522,7 @@ impl DirectDetector {
         DirectDetector {
             matcher: BookMatcher::new(),
             context: ReferenceContext::new(),
+            no_context_book: false,
             incomplete: None,
             recent_detections: VecDeque::with_capacity(5),
             chorus: chorus_refparse::Detector::new(),
@@ -656,7 +659,12 @@ impl DirectDetector {
             Some(start) => chorus_refparse::malayalam::join_pieces(start, text),
             None => text.to_string(),
         };
+        // A Malayalam preview names no book of its own: wait for the final
+        // rather than fill in the last book. The quick engine often drops
+        // or garbles a book name, and the last book is then wrong.
+        self.no_context_book = !is_final;
         let out = self.detect_inner(&joined, same_utterance);
+        self.no_context_book = false;
         if is_final {
             // Carry on only while each piece adds something to a reference;
             // chatter in between ends it.
@@ -749,6 +757,7 @@ impl DirectDetector {
             .detect(text)
             .into_iter()
             .filter(|d| d.confidence >= Confidence::Medium)
+            .filter(|d| !(self.no_context_book && d.source == chorus_refparse::Source::Context))
             .filter_map(|d| {
                 let is_settled = d.confidence == Confidence::High
                     && d.source != chorus_refparse::Source::Fuzzy
@@ -1040,6 +1049,9 @@ impl DirectDetector {
     /// [`IncompleteRef`] (reusing the normal completion machinery) and
     /// returns `None`.
     fn try_contextual_detection(&mut self, text: &str) -> Option<Detection> {
+        if self.no_context_book {
+            return None;
+        }
         let (book_number, book_name) = {
             let (num, name) = self.context.last_book()?;
             (num, name.to_string())
@@ -2782,6 +2794,25 @@ mod tests {
             (true, "എബ്രായർ പത്തിന്റെ ഇരുപത്"),
         ]);
         assert_eq!(late.last().map(|s| s.1.as_str()), Some("58 10:20"), "{late:?}");
+    }
+
+    /// A quick guess that lost its book name does not borrow the last
+    /// book (the test sermon showed Acts 5:22 for a Galatians 5:22 the
+    /// quick engine heard without its name); the final still may.
+    #[test]
+    fn malayalam_preview_does_not_borrow_last_book() {
+        let shown = ml_stream(&[
+            (true, "അപ്പൊസ്തലപ്രവൃത്തികൾ നാലാം അധ്യായം പന്ത്രണ്ടാം വാക്യം"),
+            (false, "അഞ്ചാം അധ്യായം ഇരുപത്തിരണ്ടാം വാക്യം"),
+            (false, "അഞ്ചാം അധ്യായം ഇരുപത്തിരണ്ടാം വാക്യം നമുക്ക്"),
+        ]);
+        assert_eq!(shown.iter().map(|s| s.1.as_str()).collect::<Vec<_>>(), vec!["44 4:12"], "{shown:?}");
+        let fin = ml_stream(&[
+            (true, "അപ്പൊസ്തലപ്രവൃത്തികൾ നാലാം അധ്യായം പന്ത്രണ്ടാം വാക്യം"),
+            (false, "അഞ്ചാം അധ്യായം ഇരുപത്തിരണ്ടാം വാക്യം"),
+            (true, "അഞ്ചാം അധ്യായം ഇരുപത്തിരണ്ടാം വാക്യം"),
+        ]);
+        assert_eq!(fin.last().map(|s| s.1.as_str()), Some("44 5:22"), "{fin:?}");
     }
 
     /// Live test 2026-11-08 15:27 with Indic-Transcribe, which writes
