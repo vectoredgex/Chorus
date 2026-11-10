@@ -157,7 +157,7 @@ def koyal(threads):
     return run
 
 
-def indicconformer_official(decoder, threads, int8=False):
+def indicconformer_official(decoder, threads, int8=""):
     """AI4Bharat's own IndicConformer 600M (gated on Hugging Face), with
     its CTC or RNNT decoder."""
     import os
@@ -176,7 +176,9 @@ def indicconformer_official(decoder, threads, int8=False):
         from onnxruntime.quantization import QuantType, quantize_dynamic
         src = os.path.join(snapshot_download("ai4bharat/indic-conformer-600m-multilingual",
                                              token=os.environ.get("HF_TOKEN")), "assets", "encoder.onnx")
-        dst = os.path.expanduser("~/.cache/omnilingual/ic-encoder-int8.onnx")
+        # int8 = "plain" | "pc" (per-channel scales) | "pcx" (per-channel,
+        # and the first and last two conformer layers kept full precision).
+        dst = os.path.expanduser(f"~/.cache/omnilingual/ic-encoder-int8-{int8}.onnx")
         if not os.path.exists(dst):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             # onnx refuses external weights behind the HF cache's symlinks:
@@ -186,8 +188,23 @@ def indicconformer_official(decoder, threads, int8=False):
             shutil.rmtree(real, ignore_errors=True)
             shutil.copytree(os.path.dirname(src), real, symlinks=False)
             src = os.path.join(real, "encoder.onnx")
+            exclude = []
+            if int8 == "pcx":
+                import re
+                import onnx
+                g = onnx.load(src, load_external_data=False).graph
+                def layer(n):
+                    m = re.search(r"layers\.(\d+)[./]", " ".join([n.name, *n.input]))
+                    return int(m.group(1)) if m else None
+                last = max((layer(n) for n in g.node if layer(n) is not None), default=0)
+                keep = {0, 1, last - 1, last}
+                exclude = [n.name for n in g.node
+                           if n.op_type in ("MatMul", "Gemm") and layer(n) in keep]
+                print(f"layers 0..{last}; keeping {len(exclude)} MatMuls full precision", file=sys.stderr)
             quantize_dynamic(src, dst, weight_type=QuantType.QInt8,
-                             op_types_to_quantize=["MatMul", "Gemm"])
+                             op_types_to_quantize=["MatMul", "Gemm"],
+                             per_channel=int8 in ("pc", "pcx"),
+                             nodes_to_exclude=exclude)
         print(f"int8 encoder: {os.path.getsize(dst)/1e6:.0f} MB", file=sys.stderr)
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = threads
@@ -274,8 +291,8 @@ def main():
         run = omnilingual("1B", threads)
     elif engine == "indicconformer-rnnt":
         run = indicconformer_official("rnnt", threads)
-    elif engine == "indicconformer-rnnt-int8":
-        run = indicconformer_official("rnnt", threads, int8=True)
+    elif engine.startswith("indicconformer-rnnt-int8"):
+        run = indicconformer_official("rnnt", threads, int8=engine.split("int8")[1].strip("-") or "plain")
     elif engine == "indicconformer-ctc":
         run = indicconformer_official("ctc", threads)
     elif engine == "indic-transcribe-int8":
