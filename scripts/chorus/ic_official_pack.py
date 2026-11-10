@@ -145,7 +145,10 @@ def main():
         shutil.copy(os.path.join(real, f"{n}.onnx"), os.path.join(out, f"{n}.onnx"))
     cfg = json.load(open(os.path.join(snap, "config.json")))
     vocab = json.load(open(os.path.join(real, "vocab.json"), encoding="utf-8"))["ml"]
-    json.dump({"pieces": vocab, "blank": cfg.get("BLANK_ID", 256), "sos": cfg.get("SOS", 5632),
+    # AI4Bharat's loader never reads config.json (its from_pretrained builds
+    # the config from class defaults), so their code runs with SOS 5632,
+    # not the 256 written there. 256 drops first letters ("ബ്രായർ").
+    json.dump({"pieces": vocab, "blank": 256, "sos": 5632,
                "pred_layers": cfg.get("PRED_RNN_LAYERS", 2), "pred_hidden": cfg.get("PRED_RNN_HIDDEN_DIM", 640),
                "max_symbols": cfg.get("RNNT_MAX_SYMBOLS", 10)},
               open(os.path.join(out, "tokens.json"), "w", encoding="utf-8"), ensure_ascii=False)

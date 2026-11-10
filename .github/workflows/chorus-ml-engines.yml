@@ -91,7 +91,7 @@ jobs:
         # feature differences (run 42849593126).
         # pe (pre_encode projection full): 212/384; pe0 (+layer 0): 206 (run 42850604672) - no help.
         engine: [ic-official-rust-plain]
-        voice: [natural]
+        voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
