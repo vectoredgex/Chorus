@@ -183,7 +183,12 @@ def check(folder, clips):
         print("  original decoder, pack features:    ", model._rnnt_decode(eb, None, "ml"))
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import ml_transcribe
-        print("  pack (all mine):                    ", ml_transcribe.ic_official_pack(folder, 4)(wav))
+        mine = ml_transcribe.ic_official_pack(folder, 4)
+        print("  pack (all mine):                    ", mine(wav))
+        print("  my decoder, original encoder session:", mine.decode(eb))
+        em = mine.encode(wav)
+        print("  my encoder session vs original session diff", f"{np.abs(em - eb).max():.2e}")
+        print("  original decoder, my encoder session:", model._rnnt_decode(em, None, "ml"))
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--check":

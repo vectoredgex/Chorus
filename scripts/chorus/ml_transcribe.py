@@ -233,10 +233,16 @@ def ic_official_pack(folder, threads):
     jenc, jpred, jpre, jpost = S("joint_enc"), S("joint_pred"), S("joint_pre_net"), S("joint_post_net_ml")
     tok = json.load(open(os.path.join(folder, "tokens.json"), encoding="utf-8"))
 
-    def run(wav):
+    def encode(wav):
         w = np.asarray(wav, dtype=np.float32)[None]
         feats, flen = pre.run(None, {"audio": w, "length": np.array([w.shape[1]], dtype=np.int64)})
         out, _ = enc.run(None, {"audio_signal": feats, "length": np.asarray(flen).astype(np.int64).reshape(1)})
+        return out
+
+    def run(wav):
+        return decode(encode(wav))
+
+    def decode(out):
         f_all = jenc.run(None, {"input": out.transpose(0, 2, 1)})[0]
         hyp = [tok["sos"]]
         h = np.zeros((tok["pred_layers"], 1, tok["pred_hidden"]), dtype=np.float32)
@@ -260,6 +266,7 @@ def ic_official_pack(folder, threads):
                 hyp.append(k)
                 h, c, g = nh, nc, None
         return "".join(tok["pieces"][k] for k in hyp[1:]).replace("\u2581", " ").strip()
+    run.encode, run.decode = encode, decode
     return run
 
 
