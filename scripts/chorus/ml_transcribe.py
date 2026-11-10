@@ -179,6 +179,13 @@ def indicconformer_official(decoder, threads, int8=False):
         dst = os.path.expanduser("~/.cache/omnilingual/ic-encoder-int8.onnx")
         if not os.path.exists(dst):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
+            # onnx refuses external weights behind the HF cache's symlinks:
+            # copy the real files first.
+            import shutil
+            real = os.path.expanduser("~/ic-assets")
+            shutil.rmtree(real, ignore_errors=True)
+            shutil.copytree(os.path.dirname(src), real, symlinks=False)
+            src = os.path.join(real, "encoder.onnx")
             quantize_dynamic(src, dst, weight_type=QuantType.QInt8,
                              op_types_to_quantize=["MatMul", "Gemm"])
         print(f"int8 encoder: {os.path.getsize(dst)/1e6:.0f} MB", file=sys.stderr)
