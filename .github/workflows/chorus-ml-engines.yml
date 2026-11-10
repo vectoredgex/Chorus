@@ -82,7 +82,7 @@ jobs:
         # indic-transcribe-int8, which is the Python reference for it).
         # -b1/-b2: book-name bias (start,cont bonus) on.
         # The official IndicConformer has 2.56 GB of files (run 42831054741).
-        engine: [indicconformer-rnnt, indicconformer-rnnt-int8]
+        engine: [indicconformer-rnnt-int8]
         voice: [natural, deep, high]
     steps:
       - uses: actions/checkout@v5
@@ -99,7 +99,7 @@ jobs:
           case "${{ matrix.engine }}" in
             indicconformer-rnnt*|indicconformer-ctc)
                pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-               pip install --quiet transformers "onnxruntime<1.23" ;;
+               pip install --quiet transformers "onnxruntime<1.23" onnx ;;
             indic-transcribe-int8) pip install --quiet "onnxruntime>=1.24" ;;
             indic-transcribe-rust*) ;;
             indicconformer*|omnilingual*) pip install --quiet sherpa-onnx ;;
