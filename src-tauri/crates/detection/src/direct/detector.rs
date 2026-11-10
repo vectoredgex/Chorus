@@ -2796,6 +2796,18 @@ mod tests {
         assert_eq!(late.last().map(|s| s.1.as_str()), Some("58 10:20"), "{late:?}");
     }
 
+    /// Live test 2026-11-10 with the official quick engine: a reference
+    /// split at a pause, with a cut-off restart in the second piece.
+    #[test]
+    fn malayalam_live_session_seven() {
+        let a = ml_session(&["മൂന്ന് യോഹന്നാൻ", "ഒന്നിൻ ഒന്നിൻ്റെ അഞ്ച്"]);
+        assert_eq!(a, vec!["64 1:5".to_string()]);
+        let b = ml_session(&["ടീത്തോസ് രണ്ട് ഒന്ന്"]);
+        assert_eq!(b, vec!["56 2:1".to_string()]);
+        let c = ml_session(&["യാക്കോബ് അഞ്ചിൻ്റെ", "പതിനെട്ട്"]);
+        assert_eq!(c, vec!["59 5:18".to_string()]);
+    }
+
     /// A quick guess that lost its book name does not borrow the last
     /// book (the test sermon showed Acts 5:22 for a Galatians 5:22 the
     /// quick engine heard without its name); the final still may.

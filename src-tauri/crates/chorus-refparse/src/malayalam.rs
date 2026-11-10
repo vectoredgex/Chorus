@@ -291,6 +291,8 @@ const HEARD_AS: &[(&str, &[&str])] = &[
     ("jeremiah", &["ഇരങ്ങിയാവ്", "ഇരഞ്ഞാവ്", "ഇരമിയാവ്", "ഇരമിയാറ്", "ഇരഞ്ഞാർ"]),
     ("isaiah", &["ഏഷ്യ", "ഏഷ്യാ", "ഏഷ്യാവ്"]),
     ("proverbs", &["സന്ദർശവാക്യങ്ങൾ", "സന്ദർശവാക്യങ്ങള്"]),
+    // Live test 2026-11-10.
+    ("titus", &["ടീത്തോസ്", "ടീത്തൊസ്"]),
 ];
 
 fn match_book(word: &str) -> Option<&'static str> {
@@ -408,6 +410,8 @@ fn number_stems() -> &'static HashMap<String, u32> {
 
 const CARDINAL_ENDINGS: &[&str] = &[
     "", "്", "ു", "ും", "ില്", "ിലെ", "ിന്റെ", "ന്റെ", "ിലും", "ിലാണ്", "ില്നിന്ന്",
+    // "-ിന്റെ" cut off at a pause or a restart: "ഒന്നിൻ ഒന്നിന്റെ അഞ്ച്".
+    "ിൻ", "ിന്",
 ];
 const ORDINAL_ENDINGS: &[&str] = &[
     "ാം", "ാമ", "ാ", "ാവ്", "ം", "ാമത്തെ", "ാമത്തേ", "ാമത്", "ാമതു", "ാമത്തില്", "ാമത്തിലെ", "ാമതായി", "ാമത്തേത്",
@@ -982,10 +986,15 @@ pub fn rewrite(text: &str) -> (String, bool) {
     }
 
     // A restart: "രണ്ടാം രണ്ടിന്റെ പതിനഞ്ച്" (second … of two, fifteen)
-    // is 2:15; the first "രണ്ടാം" was a false start.
+    // is 2:15; the first "രണ്ടാം" was a false start. So is a cut-off
+    // "ഒന്നിൻ" before "ഒന്നിന്റെ അഞ്ച്" (live test 2026-11-10).
     for i in 0..toks.len().saturating_sub(1) {
         if let (Tok::Num(a), Tok::Num(b)) = (&toks[i], &toks[i + 1]) {
-            if a.ordinal && !b.ordinal && a.value == b.value && norm(&words[i + 1]).ends_with("ന്റെ") {
+            let cut = {
+                let w = norm(&words[i]);
+                w.ends_with("ിൻ") || w.ends_with("ിന്")
+            };
+            if (a.ordinal || cut) && !b.ordinal && a.value == b.value && norm(&words[i + 1]).ends_with("ന്റെ") {
                 toks[i] = Tok::Word(String::new());
             }
         }

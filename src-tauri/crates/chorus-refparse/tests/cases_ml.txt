@@ -169,3 +169,6 @@
 ഒടുവിൽ വെളിപ്പാട് ഇരുപത്തൊന്നാം അത്യായം നാലം വാക്യം => Revelation 21:4 [H]
 # "Asia" with no chapter after it is not Isaiah.
 ഏഷ്യ ഒരു വലിയ ഭൂഖണ്ഡമാണ് => NONE
+# Live test 2026-11-10: a cut-off "ഒന്നിൻ" restarted, and "ടീത്തോസ്".
+മൂന്ന് യോഹന്നാൻ ഒന്നിൻ ഒന്നിൻ്റെ അഞ്ച് => 3 John 1:5 [H]
+ടീത്തോസ് രണ്ട് ഒന്ന് => Titus 2:1 [H]
