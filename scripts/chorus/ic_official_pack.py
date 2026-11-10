@@ -177,8 +177,13 @@ def check(folder, clips):
               np.abs(a.numpy() - b)[0, :, :3].max(axis=0))
         ea, _ = model.models["encoder"].run(None, {"audio_signal": a.numpy(), "length": al.numpy()})
         eb, _ = model.models["encoder"].run(None, {"audio_signal": b, "length": np.asarray(bl).astype(np.int64)})
-        print("  encoder diff", f"{np.abs(ea - eb).max():.2e}")
+        print("  encoder diff", f"{np.abs(ea - eb).max():.2e}", "mean abs", f"{np.abs(ea).mean():.2e}")
         print("  original:", model(x, "ml", "rnnt"))
+        print("  original decoder, original features:", model._rnnt_decode(ea, None, "ml"))
+        print("  original decoder, pack features:    ", model._rnnt_decode(eb, None, "ml"))
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ml_transcribe
+        print("  pack (all mine):                    ", ml_transcribe.ic_official_pack(folder, 4)(wav))
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--check":

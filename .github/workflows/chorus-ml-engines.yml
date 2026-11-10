@@ -89,8 +89,9 @@ jobs:
         # Rust and Python packs agree (plain: 208/209 of 384, Rust 0.27 s/line, run 42847921732)
         # but score below AI4Bharat's pipeline (274): the int8 encoder is sensitive to tiny
         # feature differences (run 42849593126).
-        engine: [ic-official-rust-pe, ic-official-rust-pe0]
-        voice: [natural, deep, high]
+        # pe (pre_encode projection full): 212/384; pe0 (+layer 0): 206 (run 42850604672) - no help.
+        engine: [ic-official-rust-plain]
+        voice: [natural]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -165,7 +166,7 @@ jobs:
         run: |
           python3 scripts/chorus/ic_official_pack.py ic-pack "${{ matrix.engine }}"
           pip install --quiet transformers soundfile
-          python3 scripts/chorus/ic_official_pack.py --check ic-pack clips/line10.wav clips/line11.wav clips/line03.wav 2>&1 | grep -E 'encoder diff|original'
+          python3 scripts/chorus/ic_official_pack.py --check ic-pack clips/line10.wav clips/line11.wav clips/line03.wav 2>&1 | grep -E 'encoder diff|original|pack|Error|Trace'
       - name: Transcribe
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
