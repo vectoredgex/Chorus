@@ -86,8 +86,8 @@ jobs:
         # Per-channel int8 broke it: pc 101/384, pcx 80/384 (run 42843422393).
         # px (edge 2+2 layers full): 278/384, 14 wrong, 0.46 s, 1144 MB; px6 (3+3): 281, 19 wrong, 0.57 s, 1276 MB
         # (run 42845701280). Plain int8 kept: 274, 14 wrong, 0.35 s, 880 MB.
-        engine: [ic-official-pack-plain, ic-official-rust-plain]
-        voice: [natural, deep, high]
+        engine: [ic-official-pack-plain]
+        voice: [natural]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -159,7 +159,10 @@ jobs:
         if: startsWith(matrix.engine, 'ic-official-')
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python3 scripts/chorus/ic_official_pack.py ic-pack "${{ matrix.engine }}"
+        run: |
+          python3 scripts/chorus/ic_official_pack.py ic-pack "${{ matrix.engine }}"
+          pip install --quiet transformers soundfile
+          python3 scripts/chorus/ic_official_pack.py --check ic-pack clips/line10.wav clips/line11.wav clips/line03.wav
       - name: Transcribe
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

@@ -144,5 +144,31 @@ def main():
         print(f"{os.path.getsize(p)/1e6:9.1f} MB {f}", io(p) if f.endswith(".onnx") else "")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and sys.argv[1] != "--check":
     main()
+
+
+def check(folder, clips):
+    """Compare the pack with AI4Bharat's own pipeline, step by step."""
+    import soundfile as sf
+    from transformers import AutoModel
+    model = AutoModel.from_pretrained(REPO, trust_remote_code=True, token=os.environ.get("HF_TOKEN"))
+    model.models["encoder"] = ort.InferenceSession(os.path.join(folder, "encoder.onnx"),
+                                                   providers=["CPUExecutionProvider"])
+    pre = ort.InferenceSession(os.path.join(folder, "preprocessor.onnx"), providers=["CPUExecutionProvider"])
+    for c in clips:
+        wav, sr = sf.read(c, dtype="float32")
+        x = torch.from_numpy(wav).unsqueeze(0)
+        a, al = model.models["preprocessor"](input_signal=x, length=torch.tensor([x.shape[-1]]))
+        b, bl = pre.run(None, {"audio": wav[None], "length": np.array([len(wav)], dtype=np.int64)})
+        print(c, "features", tuple(a.shape), b.shape, "len", al.tolist(), bl.tolist(),
+              f"max diff {np.abs(a.numpy() - b).max():.2e}", "first frames diff",
+              np.abs(a.numpy() - b)[0, :, :3].max(axis=0))
+        ea, _ = model.models["encoder"].run(None, {"audio_signal": a.numpy(), "length": al.numpy()})
+        eb, _ = model.models["encoder"].run(None, {"audio_signal": b, "length": np.asarray(bl).astype(np.int64)})
+        print("  encoder diff", f"{np.abs(ea - eb).max():.2e}")
+        print("  original:", model(x, "ml", "rnnt"))
+
+
+if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--check":
+    check(sys.argv[2], sys.argv[3:])
