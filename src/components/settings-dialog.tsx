@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Slider } from "@/components/ui/slider"
+import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -653,6 +654,10 @@ function BibleSection() {
     }
   }
 
+  const showMalayalam = useSettingsStore((s) => s.showMalayalam)
+  const setShowMalayalam = useSettingsStore((s) => s.setShowMalayalam)
+  const hasMalayalam = translations.some((t) => t.language === "ml")
+
   const englishTranslations = translations.filter((t) => t.language === "en")
   const otherTranslations = translations.filter((t) => t.language !== "en")
 
@@ -702,6 +707,23 @@ function BibleSection() {
           {translations.length > 0 && ` ${translations.length} translations available.`}
         </p>
       </div>
+      <label className="flex cursor-pointer items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            English and Malayalam together
+          </span>
+          <p className="text-[0.625rem] leading-relaxed text-muted-foreground">
+            {hasMalayalam
+              ? "Every verse shows in English on top with the same verse in Malayalam under it. When the Malayalam Bible is picked above, the English on top is KJV."
+              : "Needs the Malayalam Bible (run bun run download:malayalam-bible)."}
+          </p>
+        </div>
+        <Switch
+          checked={showMalayalam}
+          onCheckedChange={setShowMalayalam}
+          disabled={!hasMalayalam}
+        />
+      </label>
     </div>
   )
 }

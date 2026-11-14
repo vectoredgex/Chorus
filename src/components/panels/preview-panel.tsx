@@ -1,7 +1,9 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { PanelHeader } from "@/components/ui/panel-header"
 import { CanvasVerse } from "@/components/ui/canvas-verse"
-import { useBibleStore, useBroadcastStore } from "@/stores"
+import { useBibleStore, useBroadcastStore, useSettingsStore } from "@/stores"
+import { resolveBilingual } from "@/lib/bilingual"
+import type { VerseRenderData } from "@/types"
 import { bibleActions } from "@/hooks/use-bible"
 import { toVerseRenderData } from "@/hooks/use-broadcast"
 
@@ -27,8 +29,33 @@ export function PreviewPanel() {
 
   const activeTheme = themes.find((t) => t.id === activeThemeId) ?? themes[0]
   const translation = translations.find((t) => t.id === activeTranslationId)?.abbreviation ?? "KJV"
+  const showMalayalam = useSettingsStore((s) => s.showMalayalam)
 
-  const verseData = selectedVerse ? toVerseRenderData(selectedVerse, translation) : null
+  // English on top, Malayalam under it. Show the plain verse at once, then
+  // the paired version as soon as the lookups finish.
+  const [paired, setPaired] = useState<{ key: string; data: VerseRenderData } | null>(null)
+  const verseKey = selectedVerse
+    ? `${selectedVerse.translation_id}:${selectedVerse.book_number}:${selectedVerse.chapter}:${selectedVerse.verse}:${activeTranslationId}:${showMalayalam}`
+    : ""
+  useEffect(() => {
+    if (!selectedVerse) return
+    let cancelled = false
+    resolveBilingual(selectedVerse, translations, activeTranslationId, showMalayalam)
+      .then(({ render }) => {
+        if (!cancelled) setPaired({ key: verseKey, data: render })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verseKey, translations])
+
+  const verseData = selectedVerse
+    ? paired?.key === verseKey
+      ? paired.data
+      : toVerseRenderData(selectedVerse, translation)
+    : null
 
   return (
     <div

@@ -16,6 +16,8 @@ interface SettingsState {
   sttProvider: SttProvider
   /** Settings format version (1 = saved after Parakeet was added). */
   engineMigration: number
+  /** Chorus: show the Malayalam verse under the English verse. */
+  showMalayalam: boolean
 
   setDeepgramApiKey: (key: string | null) => void
   setOpenaiApiKey: (key: string | null) => void
@@ -27,6 +29,7 @@ interface SettingsState {
   setCooldownMs: (ms: number) => void
   setOnboardingComplete: (complete: boolean) => void
   setSttProvider: (provider: SttProvider) => void
+  setShowMalayalam: (show: boolean) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -42,6 +45,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // Chorus: offline NVIDIA Parakeet is the default English engine.
   sttProvider: "parakeet",
   engineMigration: 1,
+  showMalayalam: true,
 
   setDeepgramApiKey: (deepgramApiKey) => set({ deepgramApiKey }),
   setOpenaiApiKey: (openaiApiKey) => set({ openaiApiKey }),
@@ -53,6 +57,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setCooldownMs: (cooldownMs) => set({ cooldownMs }),
   setOnboardingComplete: (onboardingComplete) => set({ onboardingComplete }),
   setSttProvider: (sttProvider) => set({ sttProvider }),
+  setShowMalayalam: (showMalayalam) => set({ showMalayalam }),
 }))
 
 const PERSISTED_KEYS = [
@@ -67,6 +72,7 @@ const PERSISTED_KEYS = [
   "onboardingComplete",
   "sttProvider",
   "engineMigration",
+  "showMalayalam",
 ] as const satisfies readonly (keyof SettingsState)[]
 
 let tauriStore: Store | null = null

@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core"
 import { mark } from "@/lib/latency-marks"
 import { useBroadcastStore } from "@/stores/broadcast-store"
 import { useBibleStore } from "@/stores/bible-store"
+import { useSettingsStore } from "@/stores/settings-store"
+import { resolveBilingual, topTranslation } from "@/lib/bilingual"
 import type { VerseRenderData } from "@/types"
 import type { Verse } from "@/types"
 
@@ -32,10 +34,16 @@ export async function presentVerse(verse: Verse): Promise<void> {
   const ticket = presentSeq
   mark(`presentVerse start ${verse.book_name} ${verse.chapter}:${verse.verse}`)
 
+  const bilingual = useSettingsStore.getState().showMalayalam
+  const startState = useBibleStore.getState()
+  const topId =
+    topTranslation(startState.translations, startState.activeTranslationId, bilingual)?.id ??
+    startState.activeTranslationId
+
   let verseToPresent = verse
   try {
     const fullVerse = await invoke<Verse | null>("get_verse", {
-      translationId: useBibleStore.getState().activeTranslationId,
+      translationId: topId,
       bookNumber: verse.book_number,
       chapter: verse.chapter,
       verse: verse.verse,
@@ -60,15 +68,17 @@ export async function presentVerse(verse: Verse): Promise<void> {
   }
 
   const bibleState = useBibleStore.getState()
-  const translation =
-    bibleState.translations.find((t) => t.id === bibleState.activeTranslationId)
-      ?.abbreviation ?? "KJV"
+  const { render } = await resolveBilingual(
+    verseToPresent,
+    bibleState.translations,
+    bibleState.activeTranslationId,
+    bilingual,
+  )
+  if (ticket !== presentSeq) return
 
   // Keep the preview in sync with what was just presented.
   bibleState.selectVerse(verseToPresent)
-  useBroadcastStore
-    .getState()
-    .setLiveVerse(toVerseRenderData(verseToPresent, translation), verseToPresent)
+  useBroadcastStore.getState().setLiveVerse(render, verseToPresent)
   mark(`presentVerse end ${verseToPresent.book_name} ${verseToPresent.chapter}:${verseToPresent.verse}`)
 }
 

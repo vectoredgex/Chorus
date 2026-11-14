@@ -3,9 +3,9 @@ import { PanelHeader } from "@/components/ui/panel-header"
 import { CanvasVerse } from "@/components/ui/canvas-verse"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
-import { useBroadcastStore, useBibleStore } from "@/stores"
-import { presentVerse, toVerseRenderData } from "@/hooks/use-broadcast"
-import { bibleActions } from "@/hooks/use-bible"
+import { useBroadcastStore, useBibleStore, useSettingsStore } from "@/stores"
+import { presentVerse } from "@/hooks/use-broadcast"
+import { resolveBilingual } from "@/lib/bilingual"
 
 export function LiveOutputPanel() {
   const isLive = useBroadcastStore((s) => s.isLive)
@@ -14,6 +14,7 @@ export function LiveOutputPanel() {
   const themes = useBroadcastStore((s) => s.themes)
   const activeThemeId = useBroadcastStore((s) => s.activeThemeId)
   const activeTranslationId = useBibleStore((s) => s.activeTranslationId)
+  const showMalayalam = useSettingsStore((s) => s.showMalayalam)
 
   const activeTheme = themes.find((t) => t.id === activeThemeId) ?? themes[0]
 
@@ -27,20 +28,14 @@ export function LiveOutputPanel() {
   useEffect(() => {
     const source = useBroadcastStore.getState().liveSourceVerse
     if (!source) return
-    bibleActions
-      .fetchVerse(source.book_number, source.chapter, source.verse)
-      .then((v) => {
-        if (!v) return
-        const bible = useBibleStore.getState()
-        const abbreviation =
-          bible.translations.find((t) => t.id === bible.activeTranslationId)
-            ?.abbreviation ?? "KJV"
-        useBroadcastStore
-          .getState()
-          .setLiveVerse(toVerseRenderData(v, abbreviation), v)
+    const bible = useBibleStore.getState()
+    resolveBilingual(source, bible.translations, bible.activeTranslationId, showMalayalam)
+      .then(({ top, render }) => {
+        if (useBroadcastStore.getState().liveSourceVerse !== source) return
+        useBroadcastStore.getState().setLiveVerse(render, top)
       })
       .catch(() => {})
-  }, [activeTranslationId])
+  }, [activeTranslationId, showMalayalam])
 
   const handleGoLive = (checked: boolean) => {
     useBroadcastStore.getState().setLive(checked)

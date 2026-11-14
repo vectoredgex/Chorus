@@ -1,6 +1,8 @@
 export interface VerseSegment {
   verseNumber?: number
   text: string
+  /** Start this segment on its own line block (Chorus: the Malayalam verse under the English one). */
+  newBlock?: boolean
 }
 
 export interface VerseRenderData {

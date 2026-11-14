@@ -663,7 +663,50 @@ function drawReference(
   return ref.fontSize * 1.5
 }
 
+/**
+ * Split a verse into stacked blocks: a segment marked `newBlock` starts a new
+ * block on its own line (Chorus: Malayalam under English). Most verses are a
+ * single block.
+ */
+export function splitVerseBlocks(verse: VerseRenderData): VerseRenderData[] {
+  const blocks: VerseRenderData[] = []
+  for (const segment of verse.segments) {
+    const last = blocks[blocks.length - 1]
+    if (!last || (segment.newBlock && last.segments.length > 0)) {
+      blocks.push({ reference: verse.reference, segments: [segment] })
+    } else {
+      last.segments.push(segment)
+    }
+  }
+  return blocks.length ? blocks : [verse]
+}
+
+/** Space between stacked blocks, as a fraction of one line height. */
+const BLOCK_GAP_LINES = 0.6
+
 function drawVerseText(
+  ctx: CanvasRenderingContext2D,
+  theme: BroadcastTheme,
+  verse: VerseRenderData,
+  textRectX: number,
+  textRectWidth: number,
+  startY: number,
+  scaledFontSize?: number
+): number {
+  const blocks = splitVerseBlocks(verse)
+  if (blocks.length === 1) {
+    return drawVerseBlock(ctx, theme, verse, textRectX, textRectWidth, startY, scaledFontSize)
+  }
+  const gap = (scaledFontSize ?? theme.verseText.fontSize) * theme.verseText.lineHeight * BLOCK_GAP_LINES
+  let y = startY
+  for (const [i, block] of blocks.entries()) {
+    if (i > 0) y += gap
+    y += drawVerseBlock(ctx, theme, block, textRectX, textRectWidth, y, scaledFontSize)
+  }
+  return y - startY
+}
+
+function drawVerseBlock(
   ctx: CanvasRenderingContext2D,
   theme: BroadcastTheme,
   verse: VerseRenderData,
@@ -956,19 +999,25 @@ export function measureVerseHeight(
   )
   const effectiveFontSize = fontSizeOverride ?? vt.fontSize
   const lineHeightPx = effectiveFontSize * vt.lineHeight
-  const handle = prepareVerseInline(theme, verse, effectiveFontSize)
-  if (!handle) {
-    return { height: lineHeightPx, maxLineWidth: 1 }
+  const blocks = splitVerseBlocks(verse)
+  let height = 0
+  let widest = 1
+  for (const [i, block] of blocks.entries()) {
+    if (i > 0) height += lineHeightPx * BLOCK_GAP_LINES
+    const handle = prepareVerseInline(theme, block, effectiveFontSize)
+    if (!handle) {
+      height += lineHeightPx
+      continue
+    }
+    const stats = measureRichInlineStats(handle.prepared, Math.max(1, textRectWidth))
+    const maxLineWidth =
+      verseAlign === "justify" && stats.lineCount > 1
+        ? textRectWidth
+        : stats.maxLineWidth
+    height += Math.max(1, stats.lineCount) * lineHeightPx
+    widest = Math.max(widest, maxLineWidth)
   }
-  const stats = measureRichInlineStats(handle.prepared, Math.max(1, textRectWidth))
-  const maxLineWidth =
-    verseAlign === "justify" && stats.lineCount > 1
-      ? textRectWidth
-      : stats.maxLineWidth
-  return {
-    height: Math.max(1, stats.lineCount) * lineHeightPx,
-    maxLineWidth: Math.max(1, maxLineWidth),
-  }
+  return { height: Math.max(1, height), maxLineWidth: Math.max(1, widest) }
 }
 
 function pctBoxToPx(
